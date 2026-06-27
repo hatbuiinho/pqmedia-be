@@ -46,7 +46,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, cfg config.Config,
 		},
 		Post:         &service.PostService{Repo: repo, Storage: store},
 		Comment:      &service.CommentService{Repo: repo, Storage: store, Notification: notif},
-		Reaction:     &service.ReactionService{Repo: repo, Notification: notif},
+		Reaction:     &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
 		Publication:  &service.PublicationService{Repo: repo},
 		Notification: notif,
 	}
@@ -107,11 +107,14 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 		p.Patch("/posts/{postID}", postHandler.Update)
 		p.Delete("/posts/{postID}", postHandler.Delete)
 
+		p.Get("/hashtags", postHandler.SearchHashtags)
+
 		p.Get("/posts/{postID}/comments", commentHandler.ListByPost)
 		p.Post("/posts/{postID}/comments", commentHandler.Create)
 		p.Delete("/comments/{commentID}", commentHandler.Delete)
 
 		p.Get("/reactions", reactionHandler.List)
+		p.Get("/reactions/details", reactionHandler.GetDetails)
 		p.Post("/reactions", reactionHandler.Toggle)
 
 		p.Get("/posts/{postID}/publications", publicationHandler.List)

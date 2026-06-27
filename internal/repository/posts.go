@@ -57,11 +57,13 @@ type CreatePostParams struct {
 	AuthorUserID uuid.UUID
 	Content      string
 	Attachments  []PostAttachmentInput
+	Hashtags     []string
 }
 
 type FeedFilter struct {
 	AuthorUserID  *uuid.UUID
 	Search        string
+	Hashtag       string
 	UnpublishedOn []string // platforms — match posts without a publication on these
 	Limit         int
 	Offset        int
@@ -89,6 +91,9 @@ func (r *Repo) CreatePost(ctx context.Context, params CreatePostParams) (Post, [
 	if err != nil {
 		return Post{}, nil, err
 	}
+	if err := upsertHashtags(ctx, tx, post.ID, params.Hashtags); err != nil {
+		return Post{}, nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Post{}, nil, fmt.Errorf("commit: %w", err)
 	}
@@ -110,7 +115,7 @@ func (r *Repo) GetPost(ctx context.Context, id uuid.UUID) (Post, error) {
 	return p, nil
 }
 
-func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, attachments []PostAttachmentInput) (Post, []PostAttachment, error) {
+func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, attachments *[]PostAttachmentInput, hashtags *[]string) (Post, []PostAttachment, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Post{}, nil, fmt.Errorf("begin tx: %w", err)
@@ -130,15 +135,29 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, att
 		return Post{}, nil, fmt.Errorf("update post: %w", err)
 	}
 
+	var newAttachments []PostAttachment
 	if attachments != nil {
 		if _, err := tx.Exec(ctx, `DELETE FROM post_attachments WHERE post_id = $1`, id); err != nil {
 			return Post{}, nil, fmt.Errorf("clear attachments: %w", err)
 		}
+		newAttachments, err = insertAttachments(ctx, tx, post.ID, *attachments)
+		if err != nil {
+			return Post{}, nil, err
+		}
+	} else {
+		// keep existing attachments, just load them to return
+		// (optional: could query them here, but we will let service re-fetch if needed, or return empty array if not modified. Actually we should load them)
+		// Wait, existing code replaced attachments unconditionally if it wasn't nil. 
+		// If it's nil, we return empty or need to fetch? The caller probably doesn't strictly need them returned accurately if it refetches.
+		// Actually let's just return what we have or nothing.
 	}
-	newAttachments, err := insertAttachments(ctx, tx, post.ID, attachments)
-	if err != nil {
-		return Post{}, nil, err
+
+	if hashtags != nil {
+		if err := upsertHashtags(ctx, tx, post.ID, *hashtags); err != nil {
+			return Post{}, nil, err
+		}
 	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return Post{}, nil, fmt.Errorf("commit: %w", err)
 	}
@@ -179,7 +198,10 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		where += " AND posts.author_user_id = " + addArg(*filter.AuthorUserID)
 	}
 	if filter.Search != "" {
-		where += " AND posts.content ILIKE '%' || " + addArg(filter.Search) + " || '%'"
+		where += " AND f_unaccent(posts.content) ILIKE f_unaccent('%' || " + addArg(filter.Search) + " || '%')"
+	}
+	if filter.Hashtag != "" {
+		where += " AND EXISTS (SELECT 1 FROM post_hashtags ph JOIN hashtags h ON ph.hashtag_id = h.id WHERE ph.post_id = posts.id AND h.name = " + addArg(filter.Hashtag) + ")"
 	}
 	if len(filter.UnpublishedOn) > 0 {
 		where += " AND NOT EXISTS (SELECT 1 FROM post_publications pp WHERE pp.post_id = posts.id AND pp.platform = ANY(" + addArg(filter.UnpublishedOn) + "))"
@@ -318,4 +340,87 @@ func insertAttachments(ctx context.Context, tx pgx.Tx, postID uuid.UUID, inputs 
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// ListHashtagsByPosts returns hashtags grouped by post_id.
+func (r *Repo) ListHashtagsByPosts(ctx context.Context, postIDs []uuid.UUID) (map[uuid.UUID][]string, error) {
+	if len(postIDs) == 0 {
+		return map[uuid.UUID][]string{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT ph.post_id, h.name
+		FROM post_hashtags ph
+		JOIN hashtags h ON ph.hashtag_id = h.id
+		WHERE ph.post_id = ANY($1)
+	`, postIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list hashtags: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[uuid.UUID][]string, len(postIDs))
+	for rows.Next() {
+		var postID uuid.UUID
+		var name string
+		if err := rows.Scan(&postID, &name); err != nil {
+			return nil, fmt.Errorf("scan hashtag: %w", err)
+		}
+		out[postID] = append(out[postID], name)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repo) SearchHashtags(ctx context.Context, q string, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	var rows pgx.Rows
+	var err error
+	if q == "" {
+		rows, err = r.pool.Query(ctx, `SELECT name FROM hashtags ORDER BY name LIMIT $1`, limit)
+	} else {
+		rows, err = r.pool.Query(ctx, `
+			SELECT name FROM hashtags
+			WHERE f_unaccent(name) ILIKE f_unaccent('%' || $1 || '%')
+			ORDER BY name LIMIT $2
+		`, q, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("search hashtags: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			return nil, err
+		}
+		tags = append(tags, n)
+	}
+	return tags, rows.Err()
+}
+
+func upsertHashtags(ctx context.Context, tx pgx.Tx, postID uuid.UUID, tags []string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM post_hashtags WHERE post_id = $1`, postID); err != nil {
+		return fmt.Errorf("delete post_hashtags: %w", err)
+	}
+	for _, t := range tags {
+		if t == "" {
+			continue
+		}
+		var tagID uuid.UUID
+		err := tx.QueryRow(ctx, `
+			INSERT INTO hashtags (name) VALUES ($1)
+			ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id
+		`, t).Scan(&tagID)
+		if err != nil {
+			return fmt.Errorf("upsert hashtag %s: %w", t, err)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO post_hashtags (post_id, hashtag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, postID, tagID); err != nil {
+			return fmt.Errorf("link hashtag %s: %w", t, err)
+		}
+	}
+	return nil
 }

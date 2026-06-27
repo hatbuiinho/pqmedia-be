@@ -29,6 +29,7 @@ type Post struct {
 	repository.Post
 	Author       PostAuthor
 	Attachments  []PostAttachment
+	Hashtags     []string
 	CommentCount int
 	// Reactions + Publications populated by Phase 4/5 services; left empty here.
 	Reactions    []ReactionSummary
@@ -53,11 +54,13 @@ type Publication struct {
 type CreatePostInput struct {
 	Content     string
 	Attachments []repository.PostAttachmentInput
+	Hashtags    []string
 }
 
 type UpdatePostInput struct {
 	Content     *string
 	Attachments *[]repository.PostAttachmentInput
+	Hashtags    *[]string
 }
 
 type PostService struct {
@@ -96,10 +99,14 @@ func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter rep
 	if err != nil {
 		return nil, Page{}, err
 	}
+	hashtags, err := s.Repo.ListHashtagsByPosts(ctx, postIDs)
+	if err != nil {
+		return nil, Page{}, err
+	}
 
 	out := make([]Post, len(posts))
 	for i, p := range posts {
-		composed := s.composePost(p, users[i], profiles[i], attachments[p.ID], commentCounts[p.ID])
+		composed := s.composePost(p, users[i], profiles[i], attachments[p.ID], commentCounts[p.ID], hashtags[p.ID])
 		composed.Reactions = toReactionSummaries(reactions[p.ID])
 		composed.Publications = toPublications(publications[p.ID])
 		out[i] = composed
@@ -139,7 +146,11 @@ func (s *PostService) GetPost(ctx context.Context, viewer Principal, id uuid.UUI
 	if err != nil {
 		return Post{}, err
 	}
-	composed := s.composePost(post, author, profile, attachments[post.ID], counts[post.ID])
+	hashtags, err := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	composed := s.composePost(post, author, profile, attachments[post.ID], counts[post.ID], hashtags[post.ID])
 	composed.Reactions = toReactionSummaries(reactions[post.ID])
 	composed.Publications = toPublications(publications[post.ID])
 	return composed, nil
@@ -157,13 +168,14 @@ func (s *PostService) Create(ctx context.Context, viewer Principal, input Create
 		AuthorUserID: viewer.User.ID,
 		Content:      content,
 		Attachments:  input.Attachments,
+		Hashtags:     input.Hashtags,
 	})
 	if err != nil {
 		return Post{}, err
 	}
 	author, _ := s.Repo.GetUserByID(ctx, post.AuthorUserID)
 	profile, _ := s.Repo.GetProfile(ctx, post.AuthorUserID)
-	return s.composePost(post, author, profile, atts, 0), nil
+	return s.composePost(post, author, profile, atts, 0, input.Hashtags), nil
 }
 
 func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID, input UpdatePostInput) (Post, error) {
@@ -185,18 +197,19 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 			return Post{}, ValidationError("content too long")
 		}
 	}
-	var attachments []repository.PostAttachmentInput
+	var attachments *[]repository.PostAttachmentInput
 	if input.Attachments != nil {
-		attachments = *input.Attachments
+		attachments = input.Attachments
 	}
-	updated, atts, err := s.Repo.UpdatePost(ctx, id, content, attachments)
+	updated, atts, err := s.Repo.UpdatePost(ctx, id, content, attachments, input.Hashtags)
 	if err != nil {
 		return Post{}, err
 	}
 	author, _ := s.Repo.GetUserByID(ctx, updated.AuthorUserID)
 	profile, _ := s.Repo.GetProfile(ctx, updated.AuthorUserID)
 	counts, _ := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{updated.ID})
-	return s.composePost(updated, author, profile, atts, counts[updated.ID]), nil
+	hashtags, _ := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{updated.ID})
+	return s.composePost(updated, author, profile, atts, counts[updated.ID], hashtags[updated.ID]), nil
 }
 
 func (s *PostService) Delete(ctx context.Context, viewer Principal, id uuid.UUID) error {
@@ -219,7 +232,11 @@ func (s *PostService) composePost(
 	profile repository.Profile,
 	attachments []repository.PostAttachment,
 	commentCount int,
+	hashtags []string,
 ) Post {
+	if hashtags == nil {
+		hashtags = []string{}
+	}
 	enriched := make([]PostAttachment, len(attachments))
 	for i, a := range attachments {
 		enriched[i] = PostAttachment{PostAttachment: a, URL: s.attachmentURL(a)}
@@ -228,6 +245,7 @@ func (s *PostService) composePost(
 		Post:         post,
 		Author:       s.authorView(author, profile),
 		Attachments:  enriched,
+		Hashtags:     hashtags,
 		CommentCount: commentCount,
 		Reactions:    []ReactionSummary{},
 		Publications: []Publication{},

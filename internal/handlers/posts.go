@@ -48,11 +48,13 @@ func (a attachmentInput) toRepo() repository.PostAttachmentInput {
 type createPostRequest struct {
 	Content     string            `json:"content"`
 	Attachments []attachmentInput `json:"attachments"`
+	Hashtags    []string          `json:"hashtags"`
 }
 
 type updatePostRequest struct {
 	Content     *string            `json:"content,omitempty"`
 	Attachments *[]attachmentInput `json:"attachments,omitempty"`
+	Hashtags    *[]string          `json:"hashtags,omitempty"`
 }
 
 type postFeedResponse struct {
@@ -63,7 +65,8 @@ type postFeedResponse struct {
 func (h PostHandler) ListFeed(w http.ResponseWriter, r *http.Request) {
 	viewer := authctx.MustPrincipal(r.Context())
 	filter := repository.FeedFilter{
-		Search: r.URL.Query().Get("q"),
+		Search:  r.URL.Query().Get("q"),
+		Hashtag: r.URL.Query().Get("hashtag"),
 	}
 	if raw := r.URL.Query().Get("author"); raw != "" {
 		id, err := uuid.Parse(raw)
@@ -101,6 +104,7 @@ func (h PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 	post, err := h.Service.Create(r.Context(), viewer, service.CreatePostInput{
 		Content:     body.Content,
 		Attachments: toAttachmentInputs(body.Attachments),
+		Hashtags:    body.Hashtags,
 	})
 	if err != nil {
 		WriteServiceError(w, err)
@@ -136,7 +140,7 @@ func (h PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
 		return
 	}
-	input := service.UpdatePostInput{Content: body.Content}
+	input := service.UpdatePostInput{Content: body.Content, Hashtags: body.Hashtags}
 	if body.Attachments != nil {
 		inputs := toAttachmentInputs(*body.Attachments)
 		input.Attachments = &inputs
@@ -161,6 +165,21 @@ func (h PostHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h PostHandler) SearchHashtags(w http.ResponseWriter, r *http.Request) {
+	_ = authctx.MustPrincipal(r.Context()) // require auth
+	q := r.URL.Query().Get("q")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+	tags, err := h.Service.Repo.SearchHashtags(r.Context(), q, limit)
+	if err != nil {
+		WriteServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, tags)
 }
 
 func toAttachmentInputs(in []attachmentInput) []repository.PostAttachmentInput {

@@ -113,6 +113,7 @@ type PostDTO struct {
 	Author       PostAuthorDTO        `json:"author"`
 	Content      string               `json:"content"`
 	Attachments  []PostAttachmentDTO  `json:"attachments"`
+	Hashtags     []string             `json:"hashtags"`
 	CommentCount int                  `json:"comment_count"`
 	Reactions    []ReactionSummaryDTO `json:"reactions"`
 	Publications []PublicationDTO     `json:"publications"`
@@ -203,6 +204,7 @@ func ToPost(p service.Post) PostDTO {
 		},
 		Content:      p.Content,
 		Attachments:  attachments,
+		Hashtags:     p.Hashtags,
 		CommentCount: p.CommentCount,
 		Reactions:    reactions,
 		Publications: publications,
@@ -219,4 +221,13 @@ func WriteServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+}
+
+type ReactionDetailDTO struct {
+	Emoji     string    `json:"emoji"`
+	Count     int       `json:"count"`
+	UserID    string    `json:"user_id"`
+	FullName  string    `json:"full_name"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }

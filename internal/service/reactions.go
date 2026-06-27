@@ -3,19 +3,22 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"pqmedia/be/internal/repository"
+	"pqmedia/be/internal/storage"
 )
 
 type ReactionService struct {
 	Repo         *repository.Repo
+	Storage      *storage.MinIO
 	Notification Trigger
 }
 
 // Toggle inserts or removes a reaction. Returns the resulting active flag.
-func (s *ReactionService) Toggle(ctx context.Context, viewer Principal, target repository.ReactionTargetType, targetID uuid.UUID, emoji string) (bool, error) {
+func (s *ReactionService) Toggle(ctx context.Context, viewer Principal, target repository.ReactionTargetType, targetID uuid.UUID, emoji string, delta int) (bool, error) {
 	if !target.Valid() {
 		return false, ValidationError("target_type must be post or comment")
 	}
@@ -26,7 +29,7 @@ func (s *ReactionService) Toggle(ctx context.Context, viewer Principal, target r
 	if !s.targetExists(ctx, target, targetID) {
 		return false, ErrNotFound
 	}
-	active, err := s.Repo.ToggleReaction(ctx, viewer.User.ID, target, targetID, emoji)
+	active, err := s.Repo.ToggleReaction(ctx, viewer.User.ID, target, targetID, emoji, delta)
 	if err != nil {
 		return false, err
 	}
@@ -62,4 +65,43 @@ func (s *ReactionService) targetExists(ctx context.Context, target repository.Re
 	default:
 		return false
 	}
+}
+
+type ReactionDetail struct {
+	Emoji     string
+	Count     int
+	UserID    uuid.UUID
+	FullName  string
+	AvatarURL string
+	CreatedAt time.Time
+}
+
+// Details returns the reaction details for a given target.
+func (s *ReactionService) Details(ctx context.Context, viewer Principal, target repository.ReactionTargetType, targetID uuid.UUID) ([]ReactionDetail, error) {
+	if !target.Valid() {
+		return nil, ValidationError("target_type must be post or comment")
+	}
+	if !s.targetExists(ctx, target, targetID) {
+		return nil, ErrNotFound
+	}
+	aggs, err := s.Repo.GetReactionDetails(ctx, target, targetID)
+	if err != nil {
+		return nil, err
+	}
+	dtos := make([]ReactionDetail, len(aggs))
+	for i, agg := range aggs {
+		avatar := ""
+		if agg.AvatarObjectKey != nil {
+			avatar = s.Storage.BuildPublicURL(*agg.AvatarObjectKey)
+		}
+		dtos[i] = ReactionDetail{
+			Emoji:     agg.Emoji,
+			Count:     agg.Count,
+			UserID:    agg.UserID,
+			FullName:  agg.FullName,
+			AvatarURL: avatar,
+			CreatedAt: agg.CreatedAt,
+		}
+	}
+	return dtos, nil
 }
