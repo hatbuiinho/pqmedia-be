@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -193,6 +194,10 @@ func toAttachmentInputs(in []attachmentInput) []repository.PostAttachmentInput {
 func splitCSV(raw string) []string {
 	out := make([]string, 0, 4)
 	for _, p := range splitNonEmpty(raw, ',') {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
 		out = append(out, p)
 	}
 	return out

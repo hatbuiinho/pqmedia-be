@@ -15,6 +15,8 @@ type Publication struct {
 	ExternalURL       *string
 	PublishedAt       time.Time
 	PublishedByUserID uuid.UUID
+	PublishedByName   string
+	PublishedByAvatar *string
 	Note              *string
 }
 
@@ -37,17 +39,33 @@ func IsValidPlatform(platform string) bool {
 func (r *Repo) UpsertPublication(ctx context.Context, postID uuid.UUID, platform string, externalURL, note *string, publishedAt time.Time, publishedByUserID uuid.UUID) (Publication, error) {
 	var p Publication
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO post_publications
-			(post_id, platform, external_url, published_at, published_by_user_id, note)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (post_id, platform) DO UPDATE
-		SET external_url = EXCLUDED.external_url,
-		    published_at = EXCLUDED.published_at,
-		    published_by_user_id = EXCLUDED.published_by_user_id,
-		    note = EXCLUDED.note
-		RETURNING id, post_id, platform, external_url, published_at, published_by_user_id, note
+		WITH upserted AS (
+			INSERT INTO post_publications
+				(post_id, platform, external_url, published_at, published_by_user_id, note)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT (post_id, platform) DO UPDATE
+			SET external_url = EXCLUDED.external_url,
+			    published_at = EXCLUDED.published_at,
+			    published_by_user_id = EXCLUDED.published_by_user_id,
+			    note = EXCLUDED.note
+			RETURNING id, post_id, platform, external_url, published_at, published_by_user_id, note
+		)
+		SELECT u.id, u.post_id, u.platform, u.external_url, u.published_at, u.published_by_user_id,
+		       p.full_name, p.avatar_object_key, u.note
+		FROM upserted u
+		JOIN user_profiles p ON p.user_id = u.published_by_user_id
 	`, postID, platform, externalURL, publishedAt, publishedByUserID, note).
-		Scan(&p.ID, &p.PostID, &p.Platform, &p.ExternalURL, &p.PublishedAt, &p.PublishedByUserID, &p.Note)
+		Scan(
+			&p.ID,
+			&p.PostID,
+			&p.Platform,
+			&p.ExternalURL,
+			&p.PublishedAt,
+			&p.PublishedByUserID,
+			&p.PublishedByName,
+			&p.PublishedByAvatar,
+			&p.Note,
+		)
 	if err != nil {
 		return Publication{}, fmt.Errorf("upsert publication: %w", err)
 	}
@@ -70,9 +88,11 @@ func (r *Repo) ListPublicationsByPosts(ctx context.Context, postIDs []uuid.UUID)
 		return map[uuid.UUID][]Publication{}, nil
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, post_id, platform, external_url, published_at, published_by_user_id, note
-		FROM post_publications
-		WHERE post_id = ANY($1)
+		SELECT pp.id, pp.post_id, pp.platform, pp.external_url, pp.published_at, pp.published_by_user_id,
+		       p.full_name, p.avatar_object_key, pp.note
+		FROM post_publications pp
+		JOIN user_profiles p ON p.user_id = pp.published_by_user_id
+		WHERE pp.post_id = ANY($1)
 		ORDER BY post_id, platform
 	`, postIDs)
 	if err != nil {
@@ -83,7 +103,17 @@ func (r *Repo) ListPublicationsByPosts(ctx context.Context, postIDs []uuid.UUID)
 	out := make(map[uuid.UUID][]Publication, len(postIDs))
 	for rows.Next() {
 		var p Publication
-		if err := rows.Scan(&p.ID, &p.PostID, &p.Platform, &p.ExternalURL, &p.PublishedAt, &p.PublishedByUserID, &p.Note); err != nil {
+		if err := rows.Scan(
+			&p.ID,
+			&p.PostID,
+			&p.Platform,
+			&p.ExternalURL,
+			&p.PublishedAt,
+			&p.PublishedByUserID,
+			&p.PublishedByName,
+			&p.PublishedByAvatar,
+			&p.Note,
+		); err != nil {
 			return nil, fmt.Errorf("scan publication: %w", err)
 		}
 		out[p.PostID] = append(out[p.PostID], p)

@@ -8,10 +8,12 @@ import (
 	"github.com/google/uuid"
 
 	"pqmedia/be/internal/repository"
+	"pqmedia/be/internal/storage"
 )
 
 type PublicationService struct {
-	Repo *repository.Repo
+	Repo    *repository.Repo
+	Storage *storage.MinIO
 }
 
 type UpsertPublicationInput struct {
@@ -38,12 +40,7 @@ func (s *PublicationService) Upsert(ctx context.Context, viewer Principal, postI
 	if err != nil {
 		return Publication{}, err
 	}
-	return Publication{
-		ID:          created.ID,
-		Platform:    created.Platform,
-		ExternalURL: created.ExternalURL,
-		Note:        created.Note,
-	}, nil
+	return toPublication(created, s.Storage.BuildPublicURL), nil
 }
 
 func (s *PublicationService) Delete(ctx context.Context, _ Principal, postID uuid.UUID, platform string) error {
@@ -70,18 +67,33 @@ func (s *PublicationService) ListForPost(ctx context.Context, postID uuid.UUID) 
 	if err != nil {
 		return nil, err
 	}
-	return toPublications(grouped[postID]), nil
+	return toPublications(grouped[postID], s.Storage.BuildPublicURL), nil
 }
 
-func toPublications(in []repository.Publication) []Publication {
+func toPublications(in []repository.Publication, buildPublicURL func(string) string) []Publication {
 	out := make([]Publication, len(in))
 	for i, p := range in {
-		out[i] = Publication{
-			ID:          p.ID,
-			Platform:    p.Platform,
-			ExternalURL: p.ExternalURL,
-			Note:        p.Note,
-		}
+		out[i] = toPublication(p, buildPublicURL)
 	}
 	return out
+}
+
+func toPublication(p repository.Publication, buildPublicURL func(string) string) Publication {
+	avatarURL := ""
+	if p.PublishedByAvatar != nil {
+		avatarURL = buildPublicURL(*p.PublishedByAvatar)
+	}
+	return Publication{
+		ID:          p.ID,
+		PostID:      p.PostID,
+		Platform:    p.Platform,
+		ExternalURL: p.ExternalURL,
+		PublishedAt: p.PublishedAt,
+		PublishedBy: PostAuthor{
+			ID:        p.PublishedByUserID,
+			FullName:  p.PublishedByName,
+			AvatarURL: avatarURL,
+		},
+		Note: p.Note,
+	}
 }

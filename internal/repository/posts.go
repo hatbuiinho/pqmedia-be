@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,7 +65,7 @@ type FeedFilter struct {
 	AuthorUserID  *uuid.UUID
 	Search        string
 	Hashtag       string
-	UnpublishedOn []string // platforms — match posts without a publication on these
+	UnpublishedOn []string // platforms — match posts still missing at least one selected platform
 	Limit         int
 	Offset        int
 }
@@ -185,6 +186,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	if filter.Offset < 0 {
 		filter.Offset = 0
 	}
+	filter.UnpublishedOn = normalizePublicationPlatforms(filter.UnpublishedOn)
 
 	where := "WHERE posts.deleted_at IS NULL"
 	args := []any{}
@@ -204,7 +206,16 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		where += " AND EXISTS (SELECT 1 FROM post_hashtags ph JOIN hashtags h ON ph.hashtag_id = h.id WHERE ph.post_id = posts.id AND h.name = " + addArg(filter.Hashtag) + ")"
 	}
 	if len(filter.UnpublishedOn) > 0 {
-		where += " AND NOT EXISTS (SELECT 1 FROM post_publications pp WHERE pp.post_id = posts.id AND pp.platform = ANY(" + addArg(filter.UnpublishedOn) + "))"
+		where += `
+		 AND EXISTS (
+		 	SELECT 1
+		 	FROM unnest(` + addArg(filter.UnpublishedOn) + `::text[]) AS selected(platform)
+		 	WHERE NOT EXISTS (
+		 		SELECT 1
+		 		FROM post_publications pp
+		 		WHERE pp.post_id = posts.id AND pp.platform = selected.platform
+		 	)
+		 )`
 	}
 
 	var total int
@@ -250,6 +261,29 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		profiles = append(profiles, profile)
 	}
 	return posts, users, profiles, total, rows.Err()
+}
+
+func normalizePublicationPlatforms(platforms []string) []string {
+	if len(platforms) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(platforms))
+	seen := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		platform = strings.TrimSpace(platform)
+		if platform == "" || !IsValidPlatform(platform) {
+			continue
+		}
+		if _, ok := seen[platform]; ok {
+			continue
+		}
+		seen[platform] = struct{}{}
+		out = append(out, platform)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // ListAttachmentsByPosts returns attachments grouped by post_id, ordered by sort_order.

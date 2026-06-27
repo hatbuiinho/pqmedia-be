@@ -39,12 +39,7 @@ func (h PublicationHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	dtos := make([]PublicationDTO, len(items))
 	for i, p := range items {
-		dtos[i] = PublicationDTO{
-			ID:          p.ID.String(),
-			Platform:    p.Platform,
-			ExternalURL: p.ExternalURL,
-			Note:        p.Note,
-		}
+		dtos[i] = toPublicationDTO(p)
 	}
 	httpx.WriteJSON(w, http.StatusOK, publicationsListResponse{Items: dtos})
 }
@@ -71,12 +66,7 @@ func (h PublicationHandler) Upsert(w http.ResponseWriter, r *http.Request) {
 		WriteServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, PublicationDTO{
-		ID:          created.ID.String(),
-		Platform:    created.Platform,
-		ExternalURL: created.ExternalURL,
-		Note:        created.Note,
-	})
+	httpx.WriteJSON(w, http.StatusOK, toPublicationDTO(created))
 }
 
 func (h PublicationHandler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -92,4 +82,20 @@ func (h PublicationHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func toPublicationDTO(p service.Publication) PublicationDTO {
+	return PublicationDTO{
+		ID:          p.ID.String(),
+		PostID:      p.PostID.String(),
+		Platform:    p.Platform,
+		ExternalURL: p.ExternalURL,
+		PublishedAt: p.PublishedAt,
+		PublishedBy: PostAuthorDTO{
+			ID:        p.PublishedBy.ID.String(),
+			FullName:  p.PublishedBy.FullName,
+			AvatarURL: stringPtr(p.PublishedBy.AvatarURL),
+		},
+		Note: p.Note,
+	}
 }

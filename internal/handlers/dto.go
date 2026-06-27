@@ -102,10 +102,13 @@ type ReactionSummaryDTO struct {
 }
 
 type PublicationDTO struct {
-	ID          string  `json:"id"`
-	Platform    string  `json:"platform"`
-	ExternalURL *string `json:"external_url"`
-	Note        *string `json:"note"`
+	ID          string        `json:"id"`
+	PostID      string        `json:"post_id"`
+	Platform    string        `json:"platform"`
+	ExternalURL *string       `json:"external_url"`
+	PublishedAt time.Time     `json:"published_at"`
+	PublishedBy PostAuthorDTO `json:"published_by"`
+	Note        *string       `json:"note"`
 }
 
 type PostDTO struct {
@@ -185,9 +188,16 @@ func ToPost(p service.Post) PostDTO {
 	for i, pub := range p.Publications {
 		publications[i] = PublicationDTO{
 			ID:          pub.ID.String(),
+			PostID:      pub.PostID.String(),
 			Platform:    pub.Platform,
 			ExternalURL: pub.ExternalURL,
-			Note:        pub.Note,
+			PublishedAt: pub.PublishedAt,
+			PublishedBy: PostAuthorDTO{
+				ID:        pub.PublishedBy.ID.String(),
+				FullName:  pub.PublishedBy.FullName,
+				AvatarURL: stringPtr(pub.PublishedBy.AvatarURL),
+			},
+			Note: pub.Note,
 		}
 	}
 	var avatar *string
@@ -221,6 +231,13 @@ func WriteServiceError(w http.ResponseWriter, err error) {
 		return
 	}
 	httpx.WriteError(w, http.StatusInternalServerError, "internal_error", err.Error())
+}
+
+func stringPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 type ReactionDetailDTO struct {

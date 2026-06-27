@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -46,8 +47,11 @@ type ReactionSummary struct {
 
 type Publication struct {
 	ID          uuid.UUID
+	PostID      uuid.UUID
 	Platform    string
 	ExternalURL *string
+	PublishedAt time.Time
+	PublishedBy PostAuthor
 	Note        *string
 }
 
@@ -108,7 +112,7 @@ func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter rep
 	for i, p := range posts {
 		composed := s.composePost(p, users[i], profiles[i], attachments[p.ID], commentCounts[p.ID], hashtags[p.ID])
 		composed.Reactions = toReactionSummaries(reactions[p.ID])
-		composed.Publications = toPublications(publications[p.ID])
+		composed.Publications = toPublications(publications[p.ID], s.Storage.BuildPublicURL)
 		out[i] = composed
 	}
 	return out, Page{Limit: filter.Limit, Offset: filter.Offset, Count: len(out), Total: total}, nil
@@ -152,7 +156,7 @@ func (s *PostService) GetPost(ctx context.Context, viewer Principal, id uuid.UUI
 	}
 	composed := s.composePost(post, author, profile, attachments[post.ID], counts[post.ID], hashtags[post.ID])
 	composed.Reactions = toReactionSummaries(reactions[post.ID])
-	composed.Publications = toPublications(publications[post.ID])
+	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
 	return composed, nil
 }
 

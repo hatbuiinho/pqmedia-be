@@ -47,7 +47,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, cfg config.Config,
 		Post:         &service.PostService{Repo: repo, Storage: store},
 		Comment:      &service.CommentService{Repo: repo, Storage: store, Notification: notif},
 		Reaction:     &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
-		Publication:  &service.PublicationService{Repo: repo},
+		Publication:  &service.PublicationService{Repo: repo, Storage: store},
 		Notification: notif,
 	}
 }
