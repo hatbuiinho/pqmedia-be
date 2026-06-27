@@ -95,7 +95,7 @@ type reactionDetailsResponse struct {
 
 func (h ReactionHandler) GetDetails(w http.ResponseWriter, r *http.Request) {
 	viewer := authctx.MustPrincipal(r.Context())
-	
+
 	targetType := r.URL.Query().Get("target_type")
 	targetIDStr := r.URL.Query().Get("target_id")
 	if targetType == "" || targetIDStr == "" {

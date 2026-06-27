@@ -147,7 +147,7 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, att
 	} else {
 		// keep existing attachments, just load them to return
 		// (optional: could query them here, but we will let service re-fetch if needed, or return empty array if not modified. Actually we should load them)
-		// Wait, existing code replaced attachments unconditionally if it wasn't nil. 
+		// Wait, existing code replaced attachments unconditionally if it wasn't nil.
 		// If it's nil, we return empty or need to fetch? The caller probably doesn't strictly need them returned accurately if it refetches.
 		// Actually let's just return what we have or nothing.
 	}

@@ -17,15 +17,14 @@ type ReactionService struct {
 	Notification Trigger
 }
 
-// Toggle inserts or removes a reaction. Returns the resulting active flag.
+// Toggle upserts a reaction for (viewer, target) or — when `emoji` is empty —
+// clears the viewer's reaction on that target. Returns `active=true` only when
+// a reaction is present after the call.
 func (s *ReactionService) Toggle(ctx context.Context, viewer Principal, target repository.ReactionTargetType, targetID uuid.UUID, emoji string, delta int) (bool, error) {
 	if !target.Valid() {
 		return false, ValidationError("target_type must be post or comment")
 	}
 	emoji = strings.TrimSpace(emoji)
-	if emoji == "" {
-		return false, ValidationError("emoji is required")
-	}
 	if !s.targetExists(ctx, target, targetID) {
 		return false, ErrNotFound
 	}
