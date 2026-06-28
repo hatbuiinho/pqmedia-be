@@ -38,6 +38,17 @@ type CreateUserInput struct {
 	IsAdmin  bool
 }
 
+type UpdateUserInput struct {
+	FullName string
+	Phone    *string
+	IsAdmin  bool
+	IsActive bool
+}
+
+type ResetUserPasswordInput struct {
+	Password string
+}
+
 type Page struct {
 	Limit  int
 	Offset int
@@ -203,6 +214,78 @@ func (s *UserService) UpdateProfile(ctx context.Context, actor Principal, userID
 		return Principal{}, err
 	}
 	return Principal{User: user, Profile: profile}, nil
+}
+
+func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uuid.UUID, input UpdateUserInput) (Principal, error) {
+	if !actor.User.IsAdmin {
+		return Principal{}, ErrForbidden
+	}
+
+	existing, err := s.Repo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Principal{}, ErrNotFound
+		}
+		return Principal{}, err
+	}
+
+	fullName := strings.TrimSpace(input.FullName)
+	if fullName == "" {
+		return Principal{}, ValidationError("full_name is required")
+	}
+
+	removesActiveAdmin := existing.IsAdmin && existing.IsActive && (!input.IsAdmin || !input.IsActive)
+	if removesActiveAdmin {
+		activeAdmins, err := s.Repo.CountActiveAdmins(ctx)
+		if err != nil {
+			return Principal{}, err
+		}
+		if activeAdmins <= 1 {
+			return Principal{}, ValidationError("must keep at least one active admin")
+		}
+	}
+
+	updated, err := s.Repo.UpdateUserWithProfile(ctx, userID, repository.UpdateUserParams{
+		FullName: fullName,
+		Phone:    input.Phone,
+		IsAdmin:  input.IsAdmin,
+		IsActive: input.IsActive,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrNotFound):
+			return Principal{}, ErrNotFound
+		default:
+			return Principal{}, err
+		}
+	}
+	return Principal{User: updated.User, Profile: updated.Profile}, nil
+}
+
+func (s *UserService) ResetUserPassword(ctx context.Context, actor Principal, userID uuid.UUID, input ResetUserPasswordInput) error {
+	if !actor.User.IsAdmin {
+		return ErrForbidden
+	}
+	if len(input.Password) < 8 {
+		return ValidationError("password must be at least 8 characters")
+	}
+	if _, err := s.Repo.GetUserByID(ctx, userID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	hash, err := auth.HashPassword(input.Password)
+	if err != nil {
+		return err
+	}
+	if err := s.Repo.UpdateUserPasswordHash(ctx, userID, hash); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *UserService) issueTokens(userID uuid.UUID) (TokenPair, error) {

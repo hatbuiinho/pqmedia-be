@@ -89,6 +89,19 @@ func (r *Repo) ListNotifications(ctx context.Context, recipientUserID uuid.UUID,
 	return out, rows.Err()
 }
 
+func (r *Repo) CountUnreadNotifications(ctx context.Context, recipientUserID uuid.UUID) (int, error) {
+	var count int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM notifications
+		WHERE recipient_user_id = $1 AND read_at IS NULL
+	`, recipientUserID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count unread notifications: %w", err)
+	}
+	return count, nil
+}
+
 func (r *Repo) MarkNotificationRead(ctx context.Context, userID, id uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE notifications SET read_at = now()

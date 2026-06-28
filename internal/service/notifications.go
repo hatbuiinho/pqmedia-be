@@ -51,6 +51,10 @@ func (s *NotificationService) List(ctx context.Context, viewer Principal, unread
 	return out, nil
 }
 
+func (s *NotificationService) UnreadCount(ctx context.Context, viewer Principal) (int, error) {
+	return s.Repo.CountUnreadNotifications(ctx, viewer.User.ID)
+}
+
 func (s *NotificationService) MarkRead(ctx context.Context, viewer Principal, id uuid.UUID) error {
 	return s.Repo.MarkNotificationRead(ctx, viewer.User.ID, id)
 }

@@ -41,6 +41,13 @@ type CreateUserParams struct {
 	Phone        *string
 }
 
+type UpdateUserParams struct {
+	FullName string
+	Phone    *string
+	IsAdmin  bool
+	IsActive bool
+}
+
 func (r *Repo) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	const q = `
 		SELECT id, email, password_hash, is_admin, is_active, created_at, updated_at
@@ -145,6 +152,77 @@ func (r *Repo) UpdateUserActive(ctx context.Context, id uuid.UUID, isActive bool
 		return fmt.Errorf("update user active: %w", err)
 	}
 	return nil
+}
+
+func (r *Repo) CountActiveAdmins(ctx context.Context) (int, error) {
+	var count int
+	if err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM users
+		WHERE is_admin = TRUE AND is_active = TRUE
+	`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count active admins: %w", err)
+	}
+	return count, nil
+}
+
+func (r *Repo) UpdateUserAdmin(ctx context.Context, id uuid.UUID, isAdmin bool) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE users SET is_admin = $2, updated_at = now() WHERE id = $1`, id, isAdmin)
+	if err != nil {
+		return fmt.Errorf("update user admin: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) UpdateUserPasswordHash(ctx context.Context, id uuid.UUID, passwordHash string) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE users
+		SET password_hash = $2, updated_at = now()
+		WHERE id = $1
+	`, id, passwordHash)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repo) UpdateUserWithProfile(ctx context.Context, id uuid.UUID, params UpdateUserParams) (UserWithProfile, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return UserWithProfile{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	user, err := scanUser(tx.QueryRow(ctx, `
+		UPDATE users
+		SET is_admin = $2, is_active = $3, updated_at = now()
+		WHERE id = $1
+		RETURNING id, email, password_hash, is_admin, is_active, created_at, updated_at
+	`, id, params.IsAdmin, params.IsActive))
+	if err != nil {
+		return UserWithProfile{}, err
+	}
+
+	profile, err := scanProfile(tx.QueryRow(ctx, `
+		UPDATE user_profiles
+		SET full_name = $2, phone = $3, updated_at = now()
+		WHERE user_id = $1
+		RETURNING user_id, full_name, phone, avatar_bucket, avatar_object_key, updated_at
+	`, id, params.FullName, params.Phone))
+	if err != nil {
+		return UserWithProfile{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return UserWithProfile{}, fmt.Errorf("commit tx: %w", err)
+	}
+	return UserWithProfile{User: user, Profile: profile}, nil
 }
 
 func (r *Repo) UpdateProfile(ctx context.Context, userID uuid.UUID, fullName string, phone *string) (Profile, error) {

@@ -33,7 +33,8 @@ type notificationDTO struct {
 }
 
 type notificationListResponse struct {
-	Items []notificationDTO `json:"items"`
+	Items       []notificationDTO `json:"items"`
+	UnreadCount int               `json:"unread_count"`
 }
 
 func (h NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -45,11 +46,16 @@ func (h NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
 		WriteServiceError(w, err)
 		return
 	}
+	unreadCount, err := h.Service.UnreadCount(r.Context(), viewer)
+	if err != nil {
+		WriteServiceError(w, err)
+		return
+	}
 	dtos := make([]notificationDTO, len(items))
 	for i, n := range items {
 		dtos[i] = toNotificationDTO(n)
 	}
-	httpx.WriteJSON(w, http.StatusOK, notificationListResponse{Items: dtos})
+	httpx.WriteJSON(w, http.StatusOK, notificationListResponse{Items: dtos, UnreadCount: unreadCount})
 }
 
 func (h NotificationHandler) MarkRead(w http.ResponseWriter, r *http.Request) {

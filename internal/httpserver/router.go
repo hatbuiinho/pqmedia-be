@@ -27,6 +27,7 @@ type Services struct {
 	Reaction     *service.ReactionService
 	Publication  *service.PublicationService
 	Platform     *service.PlatformService
+	Hashtag      *service.HashtagService
 	Notification *service.NotificationService
 	Storage      *storage.MinIO
 }
@@ -50,6 +51,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, cfg config.Config,
 		Reaction:     &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
 		Publication:  &service.PublicationService{Repo: repo, Storage: store},
 		Platform:     &service.PlatformService{Repo: repo},
+		Hashtag:      &service.HashtagService{Repo: repo},
 		Notification: notif,
 	}
 }
@@ -69,6 +71,7 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 	reactionHandler := handlers.ReactionHandler{Service: svc.Reaction}
 	publicationHandler := handlers.PublicationHandler{Service: svc.Publication}
 	platformHandler := handlers.PlatformHandler{Service: svc.Platform}
+	hashtagHandler := handlers.HashtagHandler{Service: svc.Hashtag}
 	notificationHandler := handlers.NotificationHandler{Service: svc.Notification, VAPIDKey: cfg.WebPush.PublicKey}
 	uploadHandler := handlers.UploadHandler{Storage: svc.Storage}
 	healthHandler := handlers.HealthHandler{DB: db}
@@ -100,7 +103,9 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 
 		p.Get("/users", userHandler.List)
 		p.Post("/users", userHandler.Create)
+		p.Patch("/users/{userID}", userHandler.Update)
 		p.Patch("/users/{userID}/profile", userHandler.UpdateProfile)
+		p.Post("/users/{userID}/reset-password", userHandler.ResetPassword)
 
 		p.Post("/uploads/presign", uploadHandler.Presign)
 
@@ -111,6 +116,10 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 		p.Delete("/posts/{postID}", postHandler.Delete)
 
 		p.Get("/hashtags", postHandler.SearchHashtags)
+		p.Get("/hashtags/manage", hashtagHandler.List)
+		p.Post("/hashtags", hashtagHandler.Create)
+		p.Patch("/hashtags/{hashtagName}", hashtagHandler.Update)
+		p.Delete("/hashtags/{hashtagName}", hashtagHandler.Delete)
 		p.Get("/platforms", platformHandler.List)
 		p.Post("/platforms", platformHandler.Create)
 		p.Patch("/platforms/{platformKey}", platformHandler.Update)

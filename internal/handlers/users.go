@@ -29,6 +29,17 @@ type updateProfileRequest struct {
 	Phone    *string `json:"phone"`
 }
 
+type updateUserRequest struct {
+	FullName string  `json:"full_name"`
+	Phone    *string `json:"phone"`
+	IsAdmin  bool    `json:"is_admin"`
+	IsActive bool    `json:"is_active"`
+}
+
+type resetUserPasswordRequest struct {
+	Password string `json:"password"`
+}
+
 type listResponse struct {
 	Items []PrincipalDTO `json:"items"`
 	Page  PageMetaDTO    `json:"page"`
@@ -92,6 +103,52 @@ func (h UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, nil))
+}
+
+func (h UserHandler) Update(w http.ResponseWriter, r *http.Request) {
+	actor := authctx.MustPrincipal(r.Context())
+	userID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_user_id", err.Error())
+		return
+	}
+	var body updateUserRequest
+	if err := httpx.ReadJSON(r, &body); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	updated, err := h.Service.UpdateUser(r.Context(), actor, userID, service.UpdateUserInput{
+		FullName: body.FullName,
+		Phone:    body.Phone,
+		IsAdmin:  body.IsAdmin,
+		IsActive: body.IsActive,
+	})
+	if err != nil {
+		WriteServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, nil))
+}
+
+func (h UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	actor := authctx.MustPrincipal(r.Context())
+	userID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_user_id", err.Error())
+		return
+	}
+	var body resetUserPasswordRequest
+	if err := httpx.ReadJSON(r, &body); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if err := h.Service.ResetUserPassword(r.Context(), actor, userID, service.ResetUserPasswordInput{
+		Password: body.Password,
+	}); err != nil {
+		WriteServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h UserHandler) UpdateOwnProfile(w http.ResponseWriter, r *http.Request) {

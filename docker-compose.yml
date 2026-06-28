@@ -1,0 +1,22 @@
+services:
+  be:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pqmedia-be
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: >
+      /bin/sh -c "
+        /usr/local/bin/pqmedia-migrate -dir /app/db/migrations &&
+        exec /usr/local/bin/pqmedia-api
+      "
+    expose:
+      - "8080"
+    networks:
+      - nginx_network
+
+networks:
+  nginx_network:
+    external: true
