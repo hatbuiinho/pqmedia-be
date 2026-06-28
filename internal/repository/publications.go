@@ -20,22 +20,6 @@ type Publication struct {
 	Note              *string
 }
 
-var allowedPlatforms = map[string]struct{}{
-	"facebook":  {},
-	"instagram": {},
-	"tiktok":    {},
-	"threads":   {},
-	"youtube":   {},
-	"x":         {},
-	"other":     {},
-}
-
-// IsValidPlatform reports whether the given platform string is in the allow-list.
-func IsValidPlatform(platform string) bool {
-	_, ok := allowedPlatforms[platform]
-	return ok
-}
-
 func (r *Repo) UpsertPublication(ctx context.Context, postID uuid.UUID, platform string, externalURL, note *string, publishedAt time.Time, publishedByUserID uuid.UUID) (Publication, error) {
 	var p Publication
 	err := r.pool.QueryRow(ctx, `

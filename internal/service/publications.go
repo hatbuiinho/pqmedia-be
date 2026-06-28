@@ -23,8 +23,16 @@ type UpsertPublicationInput struct {
 }
 
 func (s *PublicationService) Upsert(ctx context.Context, viewer Principal, postID uuid.UUID, platform string, input UpsertPublicationInput) (Publication, error) {
-	if !repository.IsValidPlatform(platform) {
-		return Publication{}, ValidationError("unsupported platform")
+	platform = repository.NormalizePlatformKey(platform)
+	selectedPlatform, err := s.Repo.GetPlatform(ctx, platform)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Publication{}, ValidationError("unsupported platform")
+		}
+		return Publication{}, err
+	}
+	if !selectedPlatform.IsActive {
+		return Publication{}, ValidationError("platform is inactive")
 	}
 	if _, err := s.Repo.GetPost(ctx, postID); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -44,8 +52,12 @@ func (s *PublicationService) Upsert(ctx context.Context, viewer Principal, postI
 }
 
 func (s *PublicationService) Delete(ctx context.Context, _ Principal, postID uuid.UUID, platform string) error {
-	if !repository.IsValidPlatform(platform) {
-		return ValidationError("unsupported platform")
+	platform = repository.NormalizePlatformKey(platform)
+	if _, err := s.Repo.GetPlatform(ctx, platform); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ValidationError("unsupported platform")
+		}
+		return err
 	}
 	if err := s.Repo.DeletePublication(ctx, postID, platform); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {

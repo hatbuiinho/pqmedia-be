@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -146,11 +145,40 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, att
 			return Post{}, nil, err
 		}
 	} else {
-		// keep existing attachments, just load them to return
-		// (optional: could query them here, but we will let service re-fetch if needed, or return empty array if not modified. Actually we should load them)
-		// Wait, existing code replaced attachments unconditionally if it wasn't nil.
-		// If it's nil, we return empty or need to fetch? The caller probably doesn't strictly need them returned accurately if it refetches.
-		// Actually let's just return what we have or nothing.
+		rows, err := tx.Query(ctx, `
+			SELECT id, post_id, kind, file_name, content_type, bucket, object_key, size_bytes, width, height, duration_ms, sort_order
+			FROM post_attachments
+			WHERE post_id = $1
+			ORDER BY sort_order, created_at, id
+		`, id)
+		if err != nil {
+			return Post{}, nil, fmt.Errorf("list attachments: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var a PostAttachment
+			if err := rows.Scan(
+				&a.ID,
+				&a.PostID,
+				&a.Kind,
+				&a.FileName,
+				&a.ContentType,
+				&a.Bucket,
+				&a.ObjectKey,
+				&a.SizeBytes,
+				&a.Width,
+				&a.Height,
+				&a.DurationMs,
+				&a.SortOrder,
+			); err != nil {
+				return Post{}, nil, fmt.Errorf("scan attachment: %w", err)
+			}
+			newAttachments = append(newAttachments, a)
+		}
+		if err := rows.Err(); err != nil {
+			return Post{}, nil, fmt.Errorf("iterate attachments: %w", err)
+		}
 	}
 
 	if hashtags != nil {
@@ -270,8 +298,8 @@ func normalizePublicationPlatforms(platforms []string) []string {
 	out := make([]string, 0, len(platforms))
 	seen := make(map[string]struct{}, len(platforms))
 	for _, platform := range platforms {
-		platform = strings.TrimSpace(platform)
-		if platform == "" || !IsValidPlatform(platform) {
+		platform = NormalizePlatformKey(platform)
+		if platform == "" {
 			continue
 		}
 		if _, ok := seen[platform]; ok {

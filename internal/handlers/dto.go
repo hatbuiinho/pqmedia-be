@@ -124,6 +124,15 @@ type PostDTO struct {
 	UpdatedAt    time.Time            `json:"updated_at"`
 }
 
+type PlatformDTO struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	Icon      string `json:"icon"`
+	Tone      string `json:"tone"`
+	SortOrder int    `json:"sort_order"`
+	IsActive  bool   `json:"is_active"`
+}
+
 // ---------- Comments ----------
 
 type CommentDTO struct {
@@ -220,6 +229,17 @@ func ToPost(p service.Post) PostDTO {
 		Publications: publications,
 		CreatedAt:    p.CreatedAt,
 		UpdatedAt:    p.UpdatedAt,
+	}
+}
+
+func toPlatformDTO(p service.Platform) PlatformDTO {
+	return PlatformDTO{
+		Key:       p.Key,
+		Label:     p.Label,
+		Icon:      p.Icon,
+		Tone:      p.Tone,
+		SortOrder: p.SortOrder,
+		IsActive:  p.IsActive,
 	}
 }
 

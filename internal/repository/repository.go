@@ -28,6 +28,9 @@ func (r *Repo) Pool() *pgxpool.Pool {
 // ErrNotFound is returned when a query expects exactly one row but finds none.
 var ErrNotFound = errors.New("repository: not found")
 
+// ErrConflict is returned when a mutation violates a DB-level constraint.
+var ErrConflict = errors.New("repository: conflict")
+
 // isNoRows centralises the pgx error mapping so callers compare against ErrNotFound only.
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)

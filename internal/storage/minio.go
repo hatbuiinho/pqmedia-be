@@ -87,14 +87,15 @@ func (m *MinIO) BuildPublicURL(objectKey string) string {
 	if objectKey == "" {
 		return ""
 	}
+	encodedKey := encodeObjectKeyForURL(objectKey)
 	if m.publicBase != "" {
-		return m.publicBase + "/" + objectKey
+		return m.publicBase + "/" + encodedKey
 	}
 	scheme := "http"
 	if m.useSSL {
 		scheme = "https"
 	}
-	return scheme + "://" + m.endpoint + "/" + m.bucket + "/" + objectKey
+	return scheme + "://" + m.endpoint + "/" + m.bucket + "/" + encodedKey
 }
 
 func buildObjectKey(prefix, userID, fileName string) string {
@@ -110,4 +111,12 @@ func sanitizeFileName(name string) string {
 	// URL-escape weird chars but leave the extension intact for FE consumers.
 	name = strings.ReplaceAll(name, " ", "_")
 	return url.PathEscape(name)
+}
+
+func encodeObjectKeyForURL(objectKey string) string {
+	parts := strings.Split(objectKey, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }

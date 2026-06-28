@@ -26,6 +26,7 @@ type Services struct {
 	Comment      *service.CommentService
 	Reaction     *service.ReactionService
 	Publication  *service.PublicationService
+	Platform     *service.PlatformService
 	Notification *service.NotificationService
 	Storage      *storage.MinIO
 }
@@ -48,6 +49,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, cfg config.Config,
 		Comment:      &service.CommentService{Repo: repo, Storage: store, Notification: notif},
 		Reaction:     &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
 		Publication:  &service.PublicationService{Repo: repo, Storage: store},
+		Platform:     &service.PlatformService{Repo: repo},
 		Notification: notif,
 	}
 }
@@ -66,6 +68,7 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 	commentHandler := handlers.CommentHandler{Service: svc.Comment}
 	reactionHandler := handlers.ReactionHandler{Service: svc.Reaction}
 	publicationHandler := handlers.PublicationHandler{Service: svc.Publication}
+	platformHandler := handlers.PlatformHandler{Service: svc.Platform}
 	notificationHandler := handlers.NotificationHandler{Service: svc.Notification, VAPIDKey: cfg.WebPush.PublicKey}
 	uploadHandler := handlers.UploadHandler{Storage: svc.Storage}
 	healthHandler := handlers.HealthHandler{DB: db}
@@ -108,6 +111,10 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 		p.Delete("/posts/{postID}", postHandler.Delete)
 
 		p.Get("/hashtags", postHandler.SearchHashtags)
+		p.Get("/platforms", platformHandler.List)
+		p.Post("/platforms", platformHandler.Create)
+		p.Patch("/platforms/{platformKey}", platformHandler.Update)
+		p.Delete("/platforms/{platformKey}", platformHandler.Delete)
 
 		p.Get("/posts/{postID}/comments", commentHandler.ListByPost)
 		p.Post("/posts/{postID}/comments", commentHandler.Create)

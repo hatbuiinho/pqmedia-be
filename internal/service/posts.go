@@ -213,7 +213,12 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 	profile, _ := s.Repo.GetProfile(ctx, updated.AuthorUserID)
 	counts, _ := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{updated.ID})
 	hashtags, _ := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{updated.ID})
-	return s.composePost(updated, author, profile, atts, counts[updated.ID], hashtags[updated.ID]), nil
+	reactions, _ := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{updated.ID})
+	publications, _ := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{updated.ID})
+	composed := s.composePost(updated, author, profile, atts, counts[updated.ID], hashtags[updated.ID])
+	composed.Reactions = toReactionSummaries(reactions[updated.ID])
+	composed.Publications = toPublications(publications[updated.ID], s.Storage.BuildPublicURL)
+	return composed, nil
 }
 
 func (s *PostService) Delete(ctx context.Context, viewer Principal, id uuid.UUID) error {

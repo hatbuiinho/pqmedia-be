@@ -19,13 +19,13 @@ func TestNormalizePublicationPlatforms(t *testing.T) {
 			expect: []string{"facebook", "tiktok"},
 		},
 		{
-			name:   "trims skips invalid and deduplicates",
+			name:   "trims keeps non-empty and deduplicates",
 			input:  []string{" facebook ", "", "invalid", "facebook", " instagram "},
-			expect: []string{"facebook", "instagram"},
+			expect: []string{"facebook", "invalid", "instagram"},
 		},
 		{
-			name:   "returns nil when nothing valid remains",
-			input:  []string{"", "invalid", "   "},
+			name:   "returns nil when nothing non-empty remains",
+			input:  []string{"", "   "},
 			expect: nil,
 		},
 	}
