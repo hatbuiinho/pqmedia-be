@@ -46,7 +46,8 @@ type UpdateUserInput struct {
 }
 
 type ResetUserPasswordInput struct {
-	Password string
+	CurrentPassword string
+	Password        string
 }
 
 type Page struct {
@@ -159,7 +160,7 @@ func (s *UserService) CreateUser(ctx context.Context, actor Principal, input Cre
 
 	if existing, err := s.Repo.GetUserByEmail(ctx, email); err == nil {
 		_ = existing
-		return Principal{}, ErrConflict
+		return Principal{}, NewError(409, "email_exists", "email này đã tồn tại")
 	} else if !errors.Is(err, repository.ErrNotFound) {
 		return Principal{}, err
 	}
@@ -263,8 +264,16 @@ func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uu
 }
 
 func (s *UserService) ResetUserPassword(ctx context.Context, actor Principal, userID uuid.UUID, input ResetUserPasswordInput) error {
-	if !actor.User.IsAdmin {
+	if actor.User.ID != userID && !actor.User.IsAdmin {
 		return ErrForbidden
+	}
+	if actor.User.ID == userID {
+		if strings.TrimSpace(input.CurrentPassword) == "" {
+			return ValidationError("current_password is required")
+		}
+		if err := auth.CheckPassword(actor.User.PasswordHash, input.CurrentPassword); err != nil {
+			return ValidationError("mật khẩu hiện tại không đúng")
+		}
 	}
 	if len(input.Password) < 8 {
 		return ValidationError("password must be at least 8 characters")

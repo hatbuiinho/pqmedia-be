@@ -99,6 +99,7 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 
 		p.Get("/me", authHandler.Me)
 		p.Patch("/me/profile", userHandler.UpdateOwnProfile)
+		p.Post("/me/change-password", userHandler.UpdateOwnPassword)
 		p.Post("/auth/logout", authHandler.Logout)
 
 		p.Get("/users", userHandler.List)

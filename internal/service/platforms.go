@@ -63,7 +63,7 @@ func (s *PlatformService) CreatePlatform(ctx context.Context, actor Principal, i
 		return Platform{}, err
 	}
 	if _, err := s.Repo.GetPlatform(ctx, key); err == nil {
-		return Platform{}, ErrConflict
+		return Platform{}, NewError(http.StatusConflict, "platform_exists", "nền tảng này đã tồn tại")
 	} else if !errors.Is(err, repository.ErrNotFound) {
 		return Platform{}, err
 	}

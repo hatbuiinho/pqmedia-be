@@ -37,7 +37,8 @@ type updateUserRequest struct {
 }
 
 type resetUserPasswordRequest struct {
-	Password string `json:"password"`
+	CurrentPassword string `json:"current_password"`
+	Password        string `json:"password"`
 }
 
 type listResponse struct {
@@ -143,7 +144,8 @@ func (h UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.Service.ResetUserPassword(r.Context(), actor, userID, service.ResetUserPasswordInput{
-		Password: body.Password,
+		CurrentPassword: body.CurrentPassword,
+		Password:        body.Password,
 	}); err != nil {
 		WriteServiceError(w, err)
 		return
@@ -164,4 +166,21 @@ func (h UserHandler) UpdateOwnProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, nil))
+}
+
+func (h UserHandler) UpdateOwnPassword(w http.ResponseWriter, r *http.Request) {
+	actor := authctx.MustPrincipal(r.Context())
+	var body resetUserPasswordRequest
+	if err := httpx.ReadJSON(r, &body); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	if err := h.Service.ResetUserPassword(r.Context(), actor, actor.User.ID, service.ResetUserPasswordInput{
+		CurrentPassword: body.CurrentPassword,
+		Password:        body.Password,
+	}); err != nil {
+		WriteServiceError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
