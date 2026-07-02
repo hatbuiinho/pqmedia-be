@@ -31,18 +31,20 @@ type LoginResult struct {
 }
 
 type CreateUserInput struct {
-	Email    string
-	Password string
-	FullName string
-	Phone    *string
-	IsAdmin  bool
+	Email                 string
+	Password              string
+	FullName              string
+	Phone                 *string
+	IsAdmin               bool
+	CanManagePublications bool
 }
 
 type UpdateUserInput struct {
-	FullName string
-	Phone    *string
-	IsAdmin  bool
-	IsActive bool
+	FullName              string
+	Phone                 *string
+	IsAdmin               bool
+	CanManagePublications bool
+	IsActive              bool
 }
 
 type ResetUserPasswordInput struct {
@@ -85,7 +87,7 @@ func (s *UserService) Login(ctx context.Context, email, password string) (LoginR
 		return LoginResult{}, err
 	}
 	if !user.IsActive {
-		return LoginResult{}, ErrUnauthorized
+		return LoginResult{}, ErrAccountLocked
 	}
 	if err := auth.CheckPassword(user.PasswordHash, password); err != nil {
 		return LoginResult{}, ErrUnauthorized
@@ -170,11 +172,12 @@ func (s *UserService) CreateUser(ctx context.Context, actor Principal, input Cre
 		return Principal{}, err
 	}
 	created, err := s.Repo.CreateUserWithProfile(ctx, repository.CreateUserParams{
-		Email:        email,
-		PasswordHash: hash,
-		IsAdmin:      input.IsAdmin,
-		FullName:     strings.TrimSpace(input.FullName),
-		Phone:        input.Phone,
+		Email:                 email,
+		PasswordHash:          hash,
+		IsAdmin:               input.IsAdmin,
+		CanManagePublications: input.CanManagePublications,
+		FullName:              strings.TrimSpace(input.FullName),
+		Phone:                 input.Phone,
 	})
 	if err != nil {
 		return Principal{}, err
@@ -247,10 +250,11 @@ func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uu
 	}
 
 	updated, err := s.Repo.UpdateUserWithProfile(ctx, userID, repository.UpdateUserParams{
-		FullName: fullName,
-		Phone:    input.Phone,
-		IsAdmin:  input.IsAdmin,
-		IsActive: input.IsActive,
+		FullName:              fullName,
+		Phone:                 input.Phone,
+		IsAdmin:               input.IsAdmin,
+		CanManagePublications: input.CanManagePublications,
+		IsActive:              input.IsActive,
 	})
 	if err != nil {
 		switch {

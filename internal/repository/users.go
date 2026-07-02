@@ -10,13 +10,14 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID
-	Email        string
-	PasswordHash string
-	IsAdmin      bool
-	IsActive     bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                    uuid.UUID
+	Email                 string
+	PasswordHash          string
+	IsAdmin               bool
+	CanManagePublications bool
+	IsActive              bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type Profile struct {
@@ -34,23 +35,25 @@ type UserWithProfile struct {
 }
 
 type CreateUserParams struct {
-	Email        string
-	PasswordHash string
-	IsAdmin      bool
-	FullName     string
-	Phone        *string
+	Email                 string
+	PasswordHash          string
+	IsAdmin               bool
+	CanManagePublications bool
+	FullName              string
+	Phone                 *string
 }
 
 type UpdateUserParams struct {
-	FullName string
-	Phone    *string
-	IsAdmin  bool
-	IsActive bool
+	FullName              string
+	Phone                 *string
+	IsAdmin               bool
+	CanManagePublications bool
+	IsActive              bool
 }
 
 func (r *Repo) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	const q = `
-		SELECT id, email, password_hash, is_admin, is_active, created_at, updated_at
+		SELECT id, email, password_hash, is_admin, can_manage_publications, is_active, created_at, updated_at
 		FROM users
 		WHERE email = $1
 	`
@@ -59,7 +62,7 @@ func (r *Repo) GetUserByEmail(ctx context.Context, email string) (User, error) {
 
 func (r *Repo) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	const q = `
-		SELECT id, email, password_hash, is_admin, is_active, created_at, updated_at
+		SELECT id, email, password_hash, is_admin, can_manage_publications, is_active, created_at, updated_at
 		FROM users
 		WHERE id = $1
 	`
@@ -83,10 +86,10 @@ func (r *Repo) CreateUserWithProfile(ctx context.Context, params CreateUserParam
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	user, err := scanUser(tx.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, is_admin)
-		VALUES ($1, $2, $3)
-		RETURNING id, email, password_hash, is_admin, is_active, created_at, updated_at
-	`, params.Email, params.PasswordHash, params.IsAdmin))
+		INSERT INTO users (email, password_hash, is_admin, can_manage_publications)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, email, password_hash, is_admin, can_manage_publications, is_active, created_at, updated_at
+	`, params.Email, params.PasswordHash, params.IsAdmin, params.CanManagePublications))
 	if err != nil {
 		return UserWithProfile{}, err
 	}
@@ -120,7 +123,7 @@ func (r *Repo) ListUsers(ctx context.Context, q string, limit, offset int) ([]Us
 	}
 
 	rows, err := r.pool.Query(ctx, `
-		SELECT u.id, u.email, u.password_hash, u.is_admin, u.is_active, u.created_at, u.updated_at,
+		SELECT u.id, u.email, u.password_hash, u.is_admin, u.can_manage_publications, u.is_active, u.created_at, u.updated_at,
 		       p.user_id, p.full_name, p.phone, p.avatar_bucket, p.avatar_object_key, p.updated_at
 	`+baseFrom+`
 		ORDER BY u.created_at DESC
@@ -136,7 +139,7 @@ func (r *Repo) ListUsers(ctx context.Context, q string, limit, offset int) ([]Us
 		var u User
 		var p Profile
 		if err := rows.Scan(
-			&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+			&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CanManagePublications, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
 			&p.UserID, &p.FullName, &p.Phone, &p.AvatarBucket, &p.AvatarObjectKey, &p.UpdatedAt,
 		); err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
@@ -201,10 +204,10 @@ func (r *Repo) UpdateUserWithProfile(ctx context.Context, id uuid.UUID, params U
 
 	user, err := scanUser(tx.QueryRow(ctx, `
 		UPDATE users
-		SET is_admin = $2, is_active = $3, updated_at = now()
+		SET is_admin = $2, can_manage_publications = $3, is_active = $4, updated_at = now()
 		WHERE id = $1
-		RETURNING id, email, password_hash, is_admin, is_active, created_at, updated_at
-	`, id, params.IsAdmin, params.IsActive))
+		RETURNING id, email, password_hash, is_admin, can_manage_publications, is_active, created_at, updated_at
+	`, id, params.IsAdmin, params.CanManagePublications, params.IsActive))
 	if err != nil {
 		return UserWithProfile{}, err
 	}
@@ -240,7 +243,7 @@ type rowScanner interface {
 
 func scanUser(row rowScanner) (User, error) {
 	var u User
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CanManagePublications, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		if isNoRows(err) {
 			return User{}, ErrNotFound
 		}

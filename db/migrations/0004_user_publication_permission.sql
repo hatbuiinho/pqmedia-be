@@ -1,0 +1,2 @@
+ALTER TABLE users
+    ADD COLUMN can_manage_publications BOOLEAN NOT NULL DEFAULT FALSE;

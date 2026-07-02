@@ -67,7 +67,7 @@ func (r *Repo) DeleteComment(ctx context.Context, id uuid.UUID) error {
 func (r *Repo) ListCommentsByPost(ctx context.Context, postID uuid.UUID) ([]CommentWithAuthor, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT c.id, c.post_id, c.author_user_id, c.content, c.created_at, c.updated_at,
-		       u.id, u.email, u.password_hash, u.is_admin, u.is_active, u.created_at, u.updated_at,
+		       u.id, u.email, u.password_hash, u.is_admin, u.can_manage_publications, u.is_active, u.created_at, u.updated_at,
 		       p.user_id, p.full_name, p.phone, p.avatar_bucket, p.avatar_object_key, p.updated_at
 		FROM post_comments c
 		JOIN users u ON u.id = c.author_user_id
@@ -87,7 +87,7 @@ func (r *Repo) ListCommentsByPost(ctx context.Context, postID uuid.UUID) ([]Comm
 		var p Profile
 		if err := rows.Scan(
 			&c.ID, &c.PostID, &c.AuthorUserID, &c.Content, &c.CreatedAt, &c.UpdatedAt,
-			&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+			&u.ID, &u.Email, &u.PasswordHash, &u.IsAdmin, &u.CanManagePublications, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
 			&p.UserID, &p.FullName, &p.Phone, &p.AvatarBucket, &p.AvatarObjectKey, &p.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan comment: %w", err)

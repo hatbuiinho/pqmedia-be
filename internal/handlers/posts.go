@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -77,8 +78,13 @@ func (h PostHandler) ListFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.AuthorUserID = &id
 	}
-	if raw := r.URL.Query().Get("unpublished_on"); raw != "" {
-		filter.UnpublishedOn = splitCSV(raw)
+	if raw := r.URL.Query().Get("publication_filters"); raw != "" {
+		parsed, err := parsePublicationFilters(raw)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_publication_filters", err.Error())
+			return
+		}
+		filter.PublicationFilters = parsed
 	}
 	filter.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	filter.Offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
@@ -201,6 +207,26 @@ func splitCSV(raw string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+func parsePublicationFilters(raw string) ([]repository.PublicationFilter, error) {
+	items := splitCSV(raw)
+	out := make([]repository.PublicationFilter, 0, len(items))
+	for _, item := range items {
+		parts := splitNonEmpty(item, ':')
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid publication filter %q", item)
+		}
+		state := repository.PublicationFilterState(strings.TrimSpace(parts[1]))
+		if state != repository.PublicationFilterPublished && state != repository.PublicationFilterMissing {
+			return nil, fmt.Errorf("invalid publication filter state %q", parts[1])
+		}
+		out = append(out, repository.PublicationFilter{
+			Platform: strings.TrimSpace(parts[0]),
+			State:    state,
+		})
+	}
+	return out, nil
 }
 
 func splitNonEmpty(s string, sep rune) []string {

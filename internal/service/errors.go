@@ -20,10 +20,11 @@ func NewError(status int, code, message string) Error {
 }
 
 var (
-	ErrUnauthorized = NewError(http.StatusUnauthorized, "unauthorized", "authentication required")
-	ErrForbidden    = NewError(http.StatusForbidden, "forbidden", "operation not allowed")
-	ErrNotFound     = NewError(http.StatusNotFound, "not_found", "resource not found")
-	ErrConflict     = NewError(http.StatusConflict, "conflict", "resource already exists")
+	ErrUnauthorized  = NewError(http.StatusUnauthorized, "unauthorized", "authentication required")
+	ErrAccountLocked = NewError(http.StatusForbidden, "account_locked", "tài khoản này đã bị khóa, vui lòng liên hệ quản trị viên")
+	ErrForbidden     = NewError(http.StatusForbidden, "forbidden", "operation not allowed")
+	ErrNotFound      = NewError(http.StatusNotFound, "not_found", "resource not found")
+	ErrConflict      = NewError(http.StatusConflict, "conflict", "resource already exists")
 )
 
 func ValidationError(message string) Error {

@@ -14,11 +14,12 @@ import (
 
 // User mirrors the shared TS contract User.
 type UserDTO struct {
-	ID        string    `json:"id"`
-	Email     string    `json:"email"`
-	IsAdmin   bool      `json:"is_admin"`
-	IsActive  bool      `json:"is_active"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                    string    `json:"id"`
+	Email                 string    `json:"email"`
+	IsAdmin               bool      `json:"is_admin"`
+	CanManagePublications bool      `json:"can_manage_publications"`
+	IsActive              bool      `json:"is_active"`
+	CreatedAt             time.Time `json:"created_at"`
 }
 
 type ProfileDTO struct {
@@ -42,11 +43,12 @@ type PageMetaDTO struct {
 
 func ToUser(u repository.User) UserDTO {
 	return UserDTO{
-		ID:        u.ID.String(),
-		Email:     u.Email,
-		IsAdmin:   u.IsAdmin,
-		IsActive:  u.IsActive,
-		CreatedAt: u.CreatedAt,
+		ID:                    u.ID.String(),
+		Email:                 u.Email,
+		IsAdmin:               u.IsAdmin,
+		CanManagePublications: u.CanManagePublications,
+		IsActive:              u.IsActive,
+		CreatedAt:             u.CreatedAt,
 	}
 }
 

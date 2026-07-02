@@ -17,11 +17,12 @@ type UserHandler struct {
 }
 
 type createUserRequest struct {
-	Email    string  `json:"email"`
-	Password string  `json:"password"`
-	FullName string  `json:"full_name"`
-	Phone    *string `json:"phone"`
-	IsAdmin  bool    `json:"is_admin"`
+	Email                 string  `json:"email"`
+	Password              string  `json:"password"`
+	FullName              string  `json:"full_name"`
+	Phone                 *string `json:"phone"`
+	IsAdmin               bool    `json:"is_admin"`
+	CanManagePublications bool    `json:"can_manage_publications"`
 }
 
 type updateProfileRequest struct {
@@ -30,10 +31,11 @@ type updateProfileRequest struct {
 }
 
 type updateUserRequest struct {
-	FullName string  `json:"full_name"`
-	Phone    *string `json:"phone"`
-	IsAdmin  bool    `json:"is_admin"`
-	IsActive bool    `json:"is_active"`
+	FullName              string  `json:"full_name"`
+	Phone                 *string `json:"phone"`
+	IsAdmin               bool    `json:"is_admin"`
+	CanManagePublications bool    `json:"can_manage_publications"`
+	IsActive              bool    `json:"is_active"`
 }
 
 type resetUserPasswordRequest struct {
@@ -73,11 +75,12 @@ func (h UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	created, err := h.Service.CreateUser(r.Context(), actor, service.CreateUserInput{
-		Email:    body.Email,
-		Password: body.Password,
-		FullName: body.FullName,
-		Phone:    body.Phone,
-		IsAdmin:  body.IsAdmin,
+		Email:                 body.Email,
+		Password:              body.Password,
+		FullName:              body.FullName,
+		Phone:                 body.Phone,
+		IsAdmin:               body.IsAdmin,
+		CanManagePublications: body.CanManagePublications,
 	})
 	if err != nil {
 		WriteServiceError(w, err)
@@ -119,10 +122,11 @@ func (h UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, err := h.Service.UpdateUser(r.Context(), actor, userID, service.UpdateUserInput{
-		FullName: body.FullName,
-		Phone:    body.Phone,
-		IsAdmin:  body.IsAdmin,
-		IsActive: body.IsActive,
+		FullName:              body.FullName,
+		Phone:                 body.Phone,
+		IsAdmin:               body.IsAdmin,
+		CanManagePublications: body.CanManagePublications,
+		IsActive:              body.IsActive,
 	})
 	if err != nil {
 		WriteServiceError(w, err)

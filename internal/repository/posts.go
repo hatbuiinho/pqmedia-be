@@ -61,12 +61,24 @@ type CreatePostParams struct {
 }
 
 type FeedFilter struct {
-	AuthorUserID  *uuid.UUID
-	Search        string
-	Hashtag       string
-	UnpublishedOn []string // platforms — match posts still missing at least one selected platform
-	Limit         int
-	Offset        int
+	AuthorUserID       *uuid.UUID
+	Search             string
+	Hashtag            string
+	PublicationFilters []PublicationFilter
+	Limit              int
+	Offset             int
+}
+
+type PublicationFilterState string
+
+const (
+	PublicationFilterPublished PublicationFilterState = "published"
+	PublicationFilterMissing   PublicationFilterState = "missing"
+)
+
+type PublicationFilter struct {
+	Platform string
+	State    PublicationFilterState
 }
 
 func (r *Repo) CreatePost(ctx context.Context, params CreatePostParams) (Post, []PostAttachment, error) {
@@ -214,7 +226,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	if filter.Offset < 0 {
 		filter.Offset = 0
 	}
-	filter.UnpublishedOn = normalizePublicationPlatforms(filter.UnpublishedOn)
+	filter.PublicationFilters = normalizePublicationFilters(filter.PublicationFilters)
 
 	where := "WHERE posts.deleted_at IS NULL"
 	args := []any{}
@@ -233,17 +245,26 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	if filter.Hashtag != "" {
 		where += " AND EXISTS (SELECT 1 FROM post_hashtags ph JOIN hashtags h ON ph.hashtag_id = h.id WHERE ph.post_id = posts.id AND h.name = " + addArg(filter.Hashtag) + ")"
 	}
-	if len(filter.UnpublishedOn) > 0 {
-		where += `
+	for _, publicationFilter := range filter.PublicationFilters {
+		platformArg := addArg(publicationFilter.Platform)
+		switch publicationFilter.State {
+		case PublicationFilterPublished:
+			where += `
 		 AND EXISTS (
 		 	SELECT 1
-		 	FROM unnest(` + addArg(filter.UnpublishedOn) + `::text[]) AS selected(platform)
-		 	WHERE NOT EXISTS (
-		 		SELECT 1
-		 		FROM post_publications pp
-		 		WHERE pp.post_id = posts.id AND pp.platform = selected.platform
-		 	)
+		 	FROM post_publications pp
+		 	WHERE pp.post_id = posts.id
+		 	  AND pp.platform = ` + platformArg + `
 		 )`
+		case PublicationFilterMissing:
+			where += `
+		 AND NOT EXISTS (
+		 	SELECT 1
+		 	FROM post_publications pp
+		 	WHERE pp.post_id = posts.id
+		 	  AND pp.platform = ` + platformArg + `
+		 )`
+		}
 	}
 
 	var total int
@@ -255,7 +276,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	offsetArg := addArg(filter.Offset)
 	rows, err := r.pool.Query(ctx, `
 		SELECT posts.id, posts.author_user_id, posts.content, posts.created_at, posts.updated_at,
-		       u.id, u.email, u.password_hash, u.is_admin, u.is_active, u.created_at, u.updated_at,
+		       u.id, u.email, u.password_hash, u.is_admin, u.can_manage_publications, u.is_active, u.created_at, u.updated_at,
 		       p.user_id, p.full_name, p.phone, p.avatar_bucket, p.avatar_object_key, p.updated_at
 		FROM posts
 		JOIN users u ON u.id = posts.author_user_id
@@ -279,7 +300,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		var profile Profile
 		if err := rows.Scan(
 			&post.ID, &post.AuthorUserID, &post.Content, &post.CreatedAt, &post.UpdatedAt,
-			&user.ID, &user.Email, &user.PasswordHash, &user.IsAdmin, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
+			&user.ID, &user.Email, &user.PasswordHash, &user.IsAdmin, &user.CanManagePublications, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
 			&profile.UserID, &profile.FullName, &profile.Phone, &profile.AvatarBucket, &profile.AvatarObjectKey, &profile.UpdatedAt,
 		); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("scan feed row: %w", err)
@@ -291,22 +312,26 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	return posts, users, profiles, total, rows.Err()
 }
 
-func normalizePublicationPlatforms(platforms []string) []string {
-	if len(platforms) == 0 {
+func normalizePublicationFilters(filters []PublicationFilter) []PublicationFilter {
+	if len(filters) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(platforms))
-	seen := make(map[string]struct{}, len(platforms))
-	for _, platform := range platforms {
-		platform = NormalizePlatformKey(platform)
+	out := make([]PublicationFilter, 0, len(filters))
+	seen := make(map[string]struct{}, len(filters))
+	for _, filter := range filters {
+		platform := NormalizePlatformKey(filter.Platform)
 		if platform == "" {
 			continue
 		}
-		if _, ok := seen[platform]; ok {
+		if filter.State != PublicationFilterPublished && filter.State != PublicationFilterMissing {
 			continue
 		}
-		seen[platform] = struct{}{}
-		out = append(out, platform)
+		key := platform + ":" + string(filter.State)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, PublicationFilter{Platform: platform, State: filter.State})
 	}
 	if len(out) == 0 {
 		return nil

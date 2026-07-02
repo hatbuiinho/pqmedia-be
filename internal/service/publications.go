@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"pqmedia/be/internal/authorization"
 	"pqmedia/be/internal/repository"
 	"pqmedia/be/internal/storage"
 )
@@ -23,6 +24,9 @@ type UpsertPublicationInput struct {
 }
 
 func (s *PublicationService) Upsert(ctx context.Context, viewer Principal, postID uuid.UUID, platform string, input UpsertPublicationInput) (Publication, error) {
+	if !authorization.CanManagePublications(viewer.User) {
+		return Publication{}, ErrForbidden
+	}
 	platform = repository.NormalizePlatformKey(platform)
 	selectedPlatform, err := s.Repo.GetPlatform(ctx, platform)
 	if err != nil {
@@ -51,7 +55,10 @@ func (s *PublicationService) Upsert(ctx context.Context, viewer Principal, postI
 	return toPublication(created, s.Storage.BuildPublicURL), nil
 }
 
-func (s *PublicationService) Delete(ctx context.Context, _ Principal, postID uuid.UUID, platform string) error {
+func (s *PublicationService) Delete(ctx context.Context, viewer Principal, postID uuid.UUID, platform string) error {
+	if !authorization.CanManagePublications(viewer.User) {
+		return ErrForbidden
+	}
 	platform = repository.NormalizePlatformKey(platform)
 	if _, err := s.Repo.GetPlatform(ctx, platform); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
