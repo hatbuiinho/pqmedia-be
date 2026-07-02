@@ -4,6 +4,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -101,6 +102,7 @@ type AttachmentDriveSyncDTO struct {
 	Status         string     `json:"status"`
 	DriveFileID    *string    `json:"drive_file_id,omitempty"`
 	DriveFolderID  *string    `json:"drive_folder_id,omitempty"`
+	DriveOpenURL   *string    `json:"drive_open_url,omitempty"`
 	WebViewLink    *string    `json:"web_view_link,omitempty"`
 	WebContentLink *string    `json:"web_content_link,omitempty"`
 	ErrorMessage   *string    `json:"error_message,omitempty"`
@@ -251,10 +253,16 @@ func toAttachmentDriveSyncDTO(sync *repository.AttachmentDriveSync) *AttachmentD
 	if sync == nil {
 		return nil
 	}
+	driveOpenURL := sync.WebViewLink
+	if driveOpenURL == nil && sync.DriveFileID != nil && *sync.DriveFileID != "" {
+		url := fmt.Sprintf("https://drive.google.com/file/d/%s/view", *sync.DriveFileID)
+		driveOpenURL = &url
+	}
 	return &AttachmentDriveSyncDTO{
 		Status:         string(sync.Status),
 		DriveFileID:    sync.DriveFileID,
 		DriveFolderID:  sync.DriveFolderID,
+		DriveOpenURL:   driveOpenURL,
 		WebViewLink:    sync.WebViewLink,
 		WebContentLink: sync.WebContentLink,
 		ErrorMessage:   sync.ErrorMessage,

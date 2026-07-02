@@ -34,11 +34,7 @@ func (r *Repo) QueueAttachmentDriveSyncs(ctx context.Context, attachments []Post
 				updated_at
 			)
 			VALUES ($1, $2, NULL, 0, now(), NULL, NULL, now())
-			ON CONFLICT (attachment_id) DO UPDATE
-			SET status = EXCLUDED.status,
-			    error_message = NULL,
-			    next_attempt_at = now(),
-			    updated_at = now()
+			ON CONFLICT (attachment_id) DO NOTHING
 		`, attachment.ID, AttachmentDriveSyncPending); err != nil {
 			return fmt.Errorf("queue attachment drive sync %s: %w", attachment.ID, err)
 		}

@@ -175,10 +175,7 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, att
 
 	var newAttachments []PostAttachment
 	if attachments != nil {
-		if _, err := tx.Exec(ctx, `DELETE FROM post_attachments WHERE post_id = $1`, id); err != nil {
-			return Post{}, nil, fmt.Errorf("clear attachments: %w", err)
-		}
-		newAttachments, err = insertAttachments(ctx, tx, post.ID, *attachments)
+		newAttachments, err = upsertAttachments(ctx, tx, post.ID, *attachments)
 		if err != nil {
 			return Post{}, nil, err
 		}
@@ -229,6 +226,137 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, att
 		return Post{}, nil, fmt.Errorf("commit: %w", err)
 	}
 	return post, newAttachments, nil
+}
+
+func upsertAttachments(ctx context.Context, tx pgx.Tx, postID uuid.UUID, inputs []PostAttachmentInput) ([]PostAttachment, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id, post_id, kind, file_name, content_type, bucket, object_key, size_bytes, width, height, duration_ms, sort_order
+		FROM post_attachments
+		WHERE post_id = $1
+		ORDER BY created_at, id
+	`, postID)
+	if err != nil {
+		return nil, fmt.Errorf("list existing attachments: %w", err)
+	}
+	defer rows.Close()
+
+	existingByKey := make(map[string][]PostAttachment, len(inputs))
+	for rows.Next() {
+		var item PostAttachment
+		if err := rows.Scan(
+			&item.ID,
+			&item.PostID,
+			&item.Kind,
+			&item.FileName,
+			&item.ContentType,
+			&item.Bucket,
+			&item.ObjectKey,
+			&item.SizeBytes,
+			&item.Width,
+			&item.Height,
+			&item.DurationMs,
+			&item.SortOrder,
+		); err != nil {
+			return nil, fmt.Errorf("scan existing attachment: %w", err)
+		}
+		key := attachmentReuseKey(item.Kind, item.Bucket, item.ObjectKey)
+		existingByKey[key] = append(existingByKey[key], item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate existing attachments: %w", err)
+	}
+
+	keptIDs := make(map[uuid.UUID]struct{}, len(inputs))
+	out := make([]PostAttachment, 0, len(inputs))
+	for _, input := range inputs {
+		key := attachmentReuseKey(input.Kind, input.Bucket, input.ObjectKey)
+		if existing := popReusableAttachment(existingByKey, key); existing != nil {
+			if _, err := tx.Exec(ctx, `
+				UPDATE post_attachments
+				SET file_name = $2,
+				    content_type = $3,
+				    bucket = $4,
+				    object_key = $5,
+				    size_bytes = $6,
+				    width = $7,
+				    height = $8,
+				    duration_ms = $9,
+				    sort_order = $10
+				WHERE id = $1
+			`, existing.ID, input.FileName, input.ContentType, input.Bucket, input.ObjectKey, input.SizeBytes, input.Width, input.Height, input.DurationMs, input.SortOrder); err != nil {
+				return nil, fmt.Errorf("update attachment %s: %w", existing.ID, err)
+			}
+			existing.FileName = input.FileName
+			existing.ContentType = input.ContentType
+			existing.Bucket = input.Bucket
+			existing.ObjectKey = input.ObjectKey
+			existing.SizeBytes = input.SizeBytes
+			existing.Width = input.Width
+			existing.Height = input.Height
+			existing.DurationMs = input.DurationMs
+			existing.SortOrder = input.SortOrder
+			keptIDs[existing.ID] = struct{}{}
+			out = append(out, *existing)
+			continue
+		}
+
+		var created PostAttachment
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO post_attachments (
+				post_id, kind, file_name, content_type, bucket, object_key, size_bytes, width, height, duration_ms, sort_order
+			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			RETURNING id, post_id, kind, file_name, content_type, bucket, object_key, size_bytes, width, height, duration_ms, sort_order
+		`, postID, input.Kind, input.FileName, input.ContentType, input.Bucket, input.ObjectKey, input.SizeBytes, input.Width, input.Height, input.DurationMs, input.SortOrder).Scan(
+			&created.ID,
+			&created.PostID,
+			&created.Kind,
+			&created.FileName,
+			&created.ContentType,
+			&created.Bucket,
+			&created.ObjectKey,
+			&created.SizeBytes,
+			&created.Width,
+			&created.Height,
+			&created.DurationMs,
+			&created.SortOrder,
+		); err != nil {
+			return nil, fmt.Errorf("insert attachment: %w", err)
+		}
+		keptIDs[created.ID] = struct{}{}
+		out = append(out, created)
+	}
+
+	for _, attachments := range existingByKey {
+		for _, item := range attachments {
+			if _, ok := keptIDs[item.ID]; ok {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `DELETE FROM post_attachments WHERE id = $1`, item.ID); err != nil {
+				return nil, fmt.Errorf("delete attachment %s: %w", item.ID, err)
+			}
+		}
+	}
+
+	return out, nil
+}
+
+func attachmentReuseKey(kind AttachmentKind, bucket, objectKey string) string {
+	return string(kind) + "|" + bucket + "|" + objectKey
+}
+
+func popReusableAttachment(items map[string][]PostAttachment, key string) *PostAttachment {
+	attachments := items[key]
+	if len(attachments) == 0 {
+		return nil
+	}
+	item := attachments[0]
+	if len(attachments) == 1 {
+		delete(items, key)
+	} else {
+		items[key] = attachments[1:]
+	}
+	return &item
 }
 
 func (r *Repo) SoftDeletePost(ctx context.Context, id uuid.UUID) error {
