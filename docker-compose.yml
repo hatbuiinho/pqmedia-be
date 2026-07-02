@@ -7,11 +7,15 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE: /run/secrets/pq-media.json
     command: >
       /bin/sh -c "
         /usr/local/bin/pqmedia-migrate -dir /app/db/migrations &&
         exec /usr/local/bin/pqmedia-api
       "
+    volumes:
+      - ./pq-media.json:/run/secrets/pq-media.json:ro
     expose:
       - "8080"
     networks:

@@ -18,6 +18,8 @@ type App struct {
 	server *http.Server
 	db     *pgxpool.Pool
 	logger *slog.Logger
+	bgCtx  context.Context
+	bgStop context.CancelFunc
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -29,11 +31,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("init db: %w", err)
 	}
 
-	handler, err := httpserver.NewRouter(db, cfg, logger)
+	svc, err := httpserver.NewServicesFromDB(ctx, db, cfg, logger)
 	if err != nil {
 		db.Close()
-		return nil, fmt.Errorf("init router: %w", err)
+		return nil, fmt.Errorf("init services: %w", err)
 	}
+	handler := httpserver.NewRouterWithServices(db, cfg, logger, svc)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -41,7 +44,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	return &App{server: server, db: db, logger: logger}, nil
+	bgCtx, bgStop := context.WithCancel(context.Background())
+	if svc.DriveSync != nil {
+		go svc.DriveSync.Start(bgCtx)
+	}
+
+	return &App{server: server, db: db, logger: logger, bgCtx: bgCtx, bgStop: bgStop}, nil
 }
 
 func (a *App) Run() error {
@@ -57,6 +65,9 @@ func (a *App) Shutdown(ctx context.Context) error {
 }
 
 func (a *App) Close() {
+	if a.bgStop != nil {
+		a.bgStop()
+	}
 	if a.db != nil {
 		a.db.Close()
 	}

@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,47 +24,72 @@ import (
 type Services struct {
 	User         *service.UserService
 	Post         *service.PostService
+	DriveSync    *service.DriveSyncService
 	Comment      *service.CommentService
 	Reaction     *service.ReactionService
 	Publication  *service.PublicationService
 	Platform     *service.PlatformService
 	Hashtag      *service.HashtagService
+	Settings     *service.SettingsService
 	Notification *service.NotificationService
 	Storage      *storage.MinIO
 }
 
-func NewServices(repo *repository.Repo, store *storage.MinIO, cfg config.Config, logger *slog.Logger) Services {
+func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.GoogleDrive, cfg config.Config, logger *slog.Logger) Services {
 	notif := &service.NotificationService{
 		Repo:   repo,
 		Sender: push.NewSender(cfg.WebPush, repo, logger),
 		Logger: logger,
 	}
+	driveOAuth := service.NewGoogleDriveOAuthService(repo, drive, cfg.GoogleDrive, cfg.JWTSecret, cfg.AllowedOrigins, logger)
+	driveSync := service.NewDriveSyncService(repo, store, driveOAuth, cfg.GoogleDrive, logger)
 	return Services{
-		Storage: store,
+		Storage:   store,
+		DriveSync: driveSync,
 		User: &service.UserService{
 			Repo:            repo,
 			JWTSecret:       cfg.JWTSecret,
 			AccessTokenTTL:  cfg.AccessTokenTTL,
 			RefreshTokenTTL: cfg.RefreshTokenTTL,
 		},
-		Post:         &service.PostService{Repo: repo, Storage: store},
-		Comment:      &service.CommentService{Repo: repo, Storage: store, Notification: notif},
-		Reaction:     &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
-		Publication:  &service.PublicationService{Repo: repo, Storage: store},
-		Platform:     &service.PlatformService{Repo: repo},
-		Hashtag:      &service.HashtagService{Repo: repo},
+		Post:        &service.PostService{Repo: repo, Storage: store, DriveSync: driveSync},
+		Comment:     &service.CommentService{Repo: repo, Storage: store, Notification: notif},
+		Reaction:    &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
+		Publication: &service.PublicationService{Repo: repo, Storage: store},
+		Platform:    &service.PlatformService{Repo: repo},
+		Hashtag:     &service.HashtagService{Repo: repo},
+		Settings: &service.SettingsService{
+			Repo:                     repo,
+			DriveOAuth:               driveOAuth,
+			DriveSyncEnabled:         cfg.GoogleDrive.Enabled,
+			DefaultDriveRootFolderID: cfg.GoogleDrive.RootFolderID,
+		},
 		Notification: notif,
 	}
 }
 
-func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.Handler, error) {
+func NewServicesFromDB(ctx context.Context, db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (Services, error) {
 	repo := repository.New(db)
 	store, err := storage.NewMinIO(cfg.MinIO)
 	if err != nil {
-		return nil, fmt.Errorf("init storage: %w", err)
+		return Services{}, fmt.Errorf("init storage: %w", err)
 	}
-	svc := NewServices(repo, store, cfg, logger)
+	var driveStore *storage.GoogleDrive
+	if cfg.GoogleDrive.Enabled {
+		driveStore = storage.NewGoogleDrive(cfg.GoogleDrive)
+	}
+	return NewServices(repo, store, driveStore, cfg, logger), nil
+}
 
+func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.Handler, error) {
+	svc, err := NewServicesFromDB(context.Background(), db, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	return NewRouterWithServices(db, cfg, logger, svc), nil
+}
+
+func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, svc Services) http.Handler {
 	authHandler := handlers.AuthHandler{Service: svc.User}
 	userHandler := handlers.UserHandler{Service: svc.User}
 	postHandler := handlers.PostHandler{Service: svc.Post}
@@ -72,6 +98,7 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 	publicationHandler := handlers.PublicationHandler{Service: svc.Publication}
 	platformHandler := handlers.PlatformHandler{Service: svc.Platform}
 	hashtagHandler := handlers.HashtagHandler{Service: svc.Hashtag}
+	settingsHandler := handlers.SettingsHandler{Service: svc.Settings}
 	notificationHandler := handlers.NotificationHandler{Service: svc.Notification, VAPIDKey: cfg.WebPush.PublicKey}
 	uploadHandler := handlers.UploadHandler{Storage: svc.Storage}
 	healthHandler := handlers.HealthHandler{DB: db}
@@ -93,6 +120,7 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 	r.Get("/healthz", healthHandler.ServeHTTP)
 	r.Post("/auth/login", authHandler.Login)
 	r.Post("/auth/refresh", authHandler.Refresh)
+	r.Get("/oauth/google/drive/callback", settingsHandler.GoogleDriveOAuthCallback)
 
 	r.Group(func(p chi.Router) {
 		p.Use(Authentication(svc.User))
@@ -125,6 +153,10 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 		p.Post("/platforms", platformHandler.Create)
 		p.Patch("/platforms/{platformKey}", platformHandler.Update)
 		p.Delete("/platforms/{platformKey}", platformHandler.Delete)
+		p.Get("/settings/drive", settingsHandler.GetDriveSettings)
+		p.Patch("/settings/drive", settingsHandler.UpdateDriveSettings)
+		p.Post("/settings/drive/oauth/start", settingsHandler.StartGoogleDriveOAuth)
+		p.Delete("/settings/drive/oauth/connection", settingsHandler.DisconnectGoogleDriveOAuth)
 
 		p.Get("/posts/{postID}/comments", commentHandler.ListByPost)
 		p.Post("/posts/{postID}/comments", commentHandler.Create)
@@ -146,7 +178,7 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 		p.Delete("/push-subscriptions", notificationHandler.DisableSubscription)
 	})
 
-	return r, nil
+	return r
 }
 
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {

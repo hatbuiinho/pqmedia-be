@@ -11,6 +11,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"path"
 	"strings"
@@ -96,6 +97,21 @@ func (m *MinIO) BuildPublicURL(objectKey string) string {
 		scheme = "https"
 	}
 	return scheme + "://" + m.endpoint + "/" + m.bucket + "/" + encodedKey
+}
+
+func (m *MinIO) OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	if objectKey == "" {
+		return nil, fmt.Errorf("object key is required")
+	}
+	object, err := m.client.GetObject(ctx, m.bucket, objectKey, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get object: %w", err)
+	}
+	if _, err := object.Stat(); err != nil {
+		_ = object.Close()
+		return nil, fmt.Errorf("stat object: %w", err)
+	}
+	return object, nil
 }
 
 func buildObjectKey(prefix, userID, fileName string) string {

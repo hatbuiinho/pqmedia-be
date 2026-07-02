@@ -81,20 +81,32 @@ type PostAuthorDTO struct {
 }
 
 type PostAttachmentDTO struct {
-	ID          string  `json:"id"`
-	PostID      string  `json:"post_id"`
-	Kind        string  `json:"kind"`
-	FileName    string  `json:"file_name"`
-	ContentType string  `json:"content_type"`
-	Bucket      string  `json:"bucket"`
-	ObjectKey   string  `json:"object_key"`
-	URL         string  `json:"url"`
-	SizeBytes   int64   `json:"size_bytes"`
-	Width       *int    `json:"width"`
-	Height      *int    `json:"height"`
-	DurationMs  *int    `json:"duration_ms"`
-	SortOrder   int     `json:"sort_order"`
-	_           *string // reserved
+	ID          string                  `json:"id"`
+	PostID      string                  `json:"post_id"`
+	Kind        string                  `json:"kind"`
+	FileName    string                  `json:"file_name"`
+	ContentType string                  `json:"content_type"`
+	Bucket      string                  `json:"bucket"`
+	ObjectKey   string                  `json:"object_key"`
+	URL         string                  `json:"url"`
+	SizeBytes   int64                   `json:"size_bytes"`
+	Width       *int                    `json:"width"`
+	Height      *int                    `json:"height"`
+	DurationMs  *int                    `json:"duration_ms"`
+	SortOrder   int                     `json:"sort_order"`
+	DriveSync   *AttachmentDriveSyncDTO `json:"drive_sync,omitempty"`
+}
+
+type AttachmentDriveSyncDTO struct {
+	Status         string     `json:"status"`
+	DriveFileID    *string    `json:"drive_file_id,omitempty"`
+	DriveFolderID  *string    `json:"drive_folder_id,omitempty"`
+	WebViewLink    *string    `json:"web_view_link,omitempty"`
+	WebContentLink *string    `json:"web_content_link,omitempty"`
+	ErrorMessage   *string    `json:"error_message,omitempty"`
+	AttemptCount   int        `json:"attempt_count"`
+	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty"`
+	UploadedAt     *time.Time `json:"uploaded_at,omitempty"`
 }
 
 type ReactionSummaryDTO struct {
@@ -189,6 +201,7 @@ func ToPost(p service.Post) PostDTO {
 			Height:      a.Height,
 			DurationMs:  a.DurationMs,
 			SortOrder:   a.SortOrder,
+			DriveSync:   toAttachmentDriveSyncDTO(a.DriveSync),
 		}
 	}
 	reactions := make([]ReactionSummaryDTO, len(p.Reactions))
@@ -231,6 +244,23 @@ func ToPost(p service.Post) PostDTO {
 		Publications: publications,
 		CreatedAt:    p.CreatedAt,
 		UpdatedAt:    p.UpdatedAt,
+	}
+}
+
+func toAttachmentDriveSyncDTO(sync *repository.AttachmentDriveSync) *AttachmentDriveSyncDTO {
+	if sync == nil {
+		return nil
+	}
+	return &AttachmentDriveSyncDTO{
+		Status:         string(sync.Status),
+		DriveFileID:    sync.DriveFileID,
+		DriveFolderID:  sync.DriveFolderID,
+		WebViewLink:    sync.WebViewLink,
+		WebContentLink: sync.WebContentLink,
+		ErrorMessage:   sync.ErrorMessage,
+		AttemptCount:   sync.AttemptCount,
+		LastAttemptAt:  sync.LastAttemptAt,
+		UploadedAt:     sync.UploadedAt,
 	}
 }
 

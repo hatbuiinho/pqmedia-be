@@ -40,6 +40,32 @@ type PostAttachment struct {
 	SortOrder   int
 }
 
+type AttachmentDriveSyncStatus string
+
+const (
+	AttachmentDriveSyncPending   AttachmentDriveSyncStatus = "pending"
+	AttachmentDriveSyncUploading AttachmentDriveSyncStatus = "uploading"
+	AttachmentDriveSyncUploaded  AttachmentDriveSyncStatus = "uploaded"
+	AttachmentDriveSyncFailed    AttachmentDriveSyncStatus = "failed"
+	AttachmentDriveSyncBlocked   AttachmentDriveSyncStatus = "blocked"
+)
+
+type AttachmentDriveSync struct {
+	AttachmentID   uuid.UUID
+	Status         AttachmentDriveSyncStatus
+	DriveFileID    *string
+	DriveFolderID  *string
+	WebViewLink    *string
+	WebContentLink *string
+	ErrorMessage   *string
+	AttemptCount   int
+	NextAttemptAt  time.Time
+	LastAttemptAt  *time.Time
+	UploadedAt     *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type PostAttachmentInput struct {
 	Kind        AttachmentKind
 	FileName    string

@@ -23,7 +23,8 @@ type PostAuthor struct {
 
 type PostAttachment struct {
 	repository.PostAttachment
-	URL string
+	URL       string
+	DriveSync *repository.AttachmentDriveSync
 }
 
 type Post struct {
@@ -68,8 +69,9 @@ type UpdatePostInput struct {
 }
 
 type PostService struct {
-	Repo    *repository.Repo
-	Storage *storage.MinIO
+	Repo      *repository.Repo
+	Storage   *storage.MinIO
+	DriveSync *DriveSyncService
 }
 
 func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter repository.FeedFilter) ([]Post, Page, error) {
@@ -88,6 +90,10 @@ func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter rep
 		postIDs[i] = p.ID
 	}
 	attachments, err := s.Repo.ListAttachmentsByPosts(ctx, postIDs)
+	if err != nil {
+		return nil, Page{}, err
+	}
+	driveSyncs, err := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDsFromMap(attachments))
 	if err != nil {
 		return nil, Page{}, err
 	}
@@ -110,7 +116,7 @@ func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter rep
 
 	out := make([]Post, len(posts))
 	for i, p := range posts {
-		composed := s.composePost(p, users[i], profiles[i], attachments[p.ID], commentCounts[p.ID], hashtags[p.ID])
+		composed := s.composePost(p, users[i], profiles[i], attachments[p.ID], driveSyncs, commentCounts[p.ID], hashtags[p.ID])
 		composed.Reactions = toReactionSummaries(reactions[p.ID])
 		composed.Publications = toPublications(publications[p.ID], s.Storage.BuildPublicURL)
 		out[i] = composed
@@ -138,6 +144,10 @@ func (s *PostService) GetPost(ctx context.Context, viewer Principal, id uuid.UUI
 	if err != nil {
 		return Post{}, err
 	}
+	driveSyncs, err := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDsFromMap(attachments))
+	if err != nil {
+		return Post{}, err
+	}
 	counts, err := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{post.ID})
 	if err != nil {
 		return Post{}, err
@@ -154,7 +164,7 @@ func (s *PostService) GetPost(ctx context.Context, viewer Principal, id uuid.UUI
 	if err != nil {
 		return Post{}, err
 	}
-	composed := s.composePost(post, author, profile, attachments[post.ID], counts[post.ID], hashtags[post.ID])
+	composed := s.composePost(post, author, profile, attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
 	composed.Reactions = toReactionSummaries(reactions[post.ID])
 	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
 	return composed, nil
@@ -177,9 +187,15 @@ func (s *PostService) Create(ctx context.Context, viewer Principal, input Create
 	if err != nil {
 		return Post{}, err
 	}
+	if s.DriveSync != nil {
+		if err := s.DriveSync.QueueAttachments(ctx, atts); err != nil {
+			return Post{}, err
+		}
+	}
 	author, _ := s.Repo.GetUserByID(ctx, post.AuthorUserID)
 	profile, _ := s.Repo.GetProfile(ctx, post.AuthorUserID)
-	return s.composePost(post, author, profile, atts, 0, input.Hashtags), nil
+	driveSyncs, _ := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(atts))
+	return s.composePost(post, author, profile, atts, driveSyncs, 0, input.Hashtags), nil
 }
 
 func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID, input UpdatePostInput) (Post, error) {
@@ -209,13 +225,19 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 	if err != nil {
 		return Post{}, err
 	}
+	if s.DriveSync != nil {
+		if err := s.DriveSync.QueueAttachments(ctx, atts); err != nil {
+			return Post{}, err
+		}
+	}
 	author, _ := s.Repo.GetUserByID(ctx, updated.AuthorUserID)
 	profile, _ := s.Repo.GetProfile(ctx, updated.AuthorUserID)
 	counts, _ := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{updated.ID})
 	hashtags, _ := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{updated.ID})
 	reactions, _ := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{updated.ID})
 	publications, _ := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{updated.ID})
-	composed := s.composePost(updated, author, profile, atts, counts[updated.ID], hashtags[updated.ID])
+	driveSyncs, _ := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(atts))
+	composed := s.composePost(updated, author, profile, atts, driveSyncs, counts[updated.ID], hashtags[updated.ID])
 	composed.Reactions = toReactionSummaries(reactions[updated.ID])
 	composed.Publications = toPublications(publications[updated.ID], s.Storage.BuildPublicURL)
 	return composed, nil
@@ -240,6 +262,7 @@ func (s *PostService) composePost(
 	author repository.User,
 	profile repository.Profile,
 	attachments []repository.PostAttachment,
+	driveSyncs map[uuid.UUID]repository.AttachmentDriveSync,
 	commentCount int,
 	hashtags []string,
 ) Post {
@@ -248,7 +271,12 @@ func (s *PostService) composePost(
 	}
 	enriched := make([]PostAttachment, len(attachments))
 	for i, a := range attachments {
-		enriched[i] = PostAttachment{PostAttachment: a, URL: s.attachmentURL(a)}
+		var driveSync *repository.AttachmentDriveSync
+		if sync, ok := driveSyncs[a.ID]; ok {
+			syncCopy := sync
+			driveSync = &syncCopy
+		}
+		enriched[i] = PostAttachment{PostAttachment: a, URL: s.attachmentURL(a), DriveSync: driveSync}
 	}
 	return Post{
 		Post:         post,
@@ -259,6 +287,24 @@ func (s *PostService) composePost(
 		Reactions:    []ReactionSummary{},
 		Publications: []Publication{},
 	}
+}
+
+func attachmentIDsFromMap(items map[uuid.UUID][]repository.PostAttachment) []uuid.UUID {
+	var out []uuid.UUID
+	for _, attachments := range items {
+		for _, attachment := range attachments {
+			out = append(out, attachment.ID)
+		}
+	}
+	return out
+}
+
+func attachmentIDs(items []repository.PostAttachment) []uuid.UUID {
+	out := make([]uuid.UUID, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.ID)
+	}
+	return out
 }
 
 func (s *PostService) authorView(u repository.User, p repository.Profile) PostAuthor {
