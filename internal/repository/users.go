@@ -415,6 +415,15 @@ func (r *Repo) UpdateProfile(ctx context.Context, userID uuid.UUID, fullName str
 	`, userID, fullName, dharmaName, birthYear, phone, ctn))
 }
 
+func (r *Repo) UpdateProfileAvatar(ctx context.Context, userID uuid.UUID, avatarBucket *string, avatarObjectKey *string) (Profile, error) {
+	return scanProfile(r.pool.QueryRow(ctx, `
+		UPDATE user_profiles
+		SET avatar_bucket = $2, avatar_object_key = $3, updated_at = now()
+		WHERE user_id = $1
+		RETURNING user_id, full_name, dharma_name, birth_year, phone, ctn, avatar_bucket, avatar_object_key, updated_at
+	`, userID, avatarBucket, avatarObjectKey))
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }

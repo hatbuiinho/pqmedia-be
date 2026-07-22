@@ -7,10 +7,12 @@ import (
 	"pqmedia/be/internal/authctx"
 	"pqmedia/be/internal/httpx"
 	"pqmedia/be/internal/service"
+	"pqmedia/be/internal/storage"
 )
 
 type AuthHandler struct {
 	Service *service.UserService
+	Storage *storage.MinIO
 }
 
 type loginRequest struct {
@@ -50,7 +52,7 @@ func (h AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			RefreshToken:    result.Tokens.RefreshToken,
 			AccessExpiresAt: result.Tokens.AccessExpiresAt,
 		},
-		Principal: ToPrincipal(result.Principal, nil),
+		Principal: ToPrincipal(result.Principal, avatarURLForProfile(h.Storage, result.Principal.Profile)),
 	})
 }
 
@@ -80,5 +82,5 @@ func (h AuthHandler) Logout(w http.ResponseWriter, _ *http.Request) {
 
 func (h AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	principal := authctx.MustPrincipal(r.Context())
-	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(principal, nil))
+	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(principal, avatarURLForProfile(h.Storage, principal.Profile)))
 }

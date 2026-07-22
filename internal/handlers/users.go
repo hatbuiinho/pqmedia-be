@@ -14,10 +14,12 @@ import (
 	"pqmedia/be/internal/authctx"
 	"pqmedia/be/internal/httpx"
 	"pqmedia/be/internal/service"
+	"pqmedia/be/internal/storage"
 )
 
 type UserHandler struct {
 	Service *service.UserService
+	Storage *storage.MinIO
 }
 
 type createUserRequest struct {
@@ -57,6 +59,11 @@ type resetUserPasswordRequest struct {
 	Password        string `json:"password"`
 }
 
+type updateOwnAvatarRequest struct {
+	Bucket    string `json:"bucket"`
+	ObjectKey string `json:"object_key"`
+}
+
 type commitUserImportRequest struct {
 	ImportID string `json:"import_id"`
 }
@@ -84,7 +91,7 @@ func (h UserHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	dtos := make([]PrincipalDTO, 0, len(items))
 	for _, p := range items {
-		dtos = append(dtos, ToPrincipal(p, nil))
+		dtos = append(dtos, ToPrincipal(p, avatarURLForProfile(h.Storage, p.Profile)))
 	}
 	httpx.WriteJSON(w, http.StatusOK, listResponse{Items: dtos, Page: ToPageMeta(page)})
 }
@@ -112,7 +119,7 @@ func (h UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		WriteServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusCreated, ToPrincipal(created, nil))
+	httpx.WriteJSON(w, http.StatusCreated, ToPrincipal(created, avatarURLForProfile(h.Storage, created.Profile)))
 }
 
 func (h UserHandler) PreviewImport(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +292,7 @@ func (h UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		WriteServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, nil))
+	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, avatarURLForProfile(h.Storage, updated.Profile)))
 }
 
 func (h UserHandler) Update(w http.ResponseWriter, r *http.Request) {
@@ -314,7 +321,7 @@ func (h UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		WriteServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, nil))
+	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, avatarURLForProfile(h.Storage, updated.Profile)))
 }
 
 func (h UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
@@ -357,7 +364,25 @@ func (h UserHandler) UpdateOwnProfile(w http.ResponseWriter, r *http.Request) {
 		WriteServiceError(w, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, nil))
+	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, avatarURLForProfile(h.Storage, updated.Profile)))
+}
+
+func (h UserHandler) UpdateOwnAvatar(w http.ResponseWriter, r *http.Request) {
+	actor := authctx.MustPrincipal(r.Context())
+	var body updateOwnAvatarRequest
+	if err := httpx.ReadJSON(r, &body); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	updated, err := h.Service.UpdateAvatar(r.Context(), actor, actor.User.ID, service.UpdateAvatarInput{
+		Bucket:    body.Bucket,
+		ObjectKey: body.ObjectKey,
+	})
+	if err != nil {
+		WriteServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, ToPrincipal(updated, avatarURLForProfile(h.Storage, updated.Profile)))
 }
 
 func (h UserHandler) UpdateOwnPassword(w http.ResponseWriter, r *http.Request) {

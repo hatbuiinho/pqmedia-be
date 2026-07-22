@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/mail"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"pqmedia/be/internal/auth"
 	"pqmedia/be/internal/repository"
+	"pqmedia/be/internal/storage"
 )
 
 // Principal is the authenticated user view returned to handlers.
@@ -68,6 +70,11 @@ type ResetUserPasswordInput struct {
 	Password        string
 }
 
+type UpdateAvatarInput struct {
+	Bucket    string
+	ObjectKey string
+}
+
 type Page struct {
 	Limit  int
 	Offset int
@@ -77,6 +84,7 @@ type Page struct {
 
 type UserService struct {
 	Repo            *repository.Repo
+	Storage         *storage.MinIO
 	JWTSecret       string
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
@@ -375,6 +383,46 @@ func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uu
 		}
 	}
 	return Principal{User: updated.User, Profile: updated.Profile}, nil
+}
+
+func (s *UserService) UpdateAvatar(ctx context.Context, actor Principal, userID uuid.UUID, input UpdateAvatarInput) (Principal, error) {
+	if actor.User.ID != userID && !actor.User.IsAdmin {
+		return Principal{}, ErrForbidden
+	}
+	if s.Storage == nil {
+		return Principal{}, NewError(500, "storage_unavailable", "storage is not configured")
+	}
+
+	bucket := strings.TrimSpace(input.Bucket)
+	objectKey := strings.TrimSpace(input.ObjectKey)
+	if bucket == "" || objectKey == "" {
+		return Principal{}, ValidationError("bucket and object_key are required")
+	}
+	if bucket != s.Storage.Bucket() {
+		return Principal{}, ValidationError("invalid avatar bucket")
+	}
+
+	expectedPrefix := path.Join("avatars", userID.String()) + "/"
+	if !strings.HasPrefix(objectKey, expectedPrefix) {
+		return Principal{}, ValidationError("invalid avatar object_key")
+	}
+
+	profile, err := s.Repo.UpdateProfileAvatar(ctx, userID, &bucket, &objectKey)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Principal{}, ErrNotFound
+		}
+		return Principal{}, err
+	}
+
+	user, err := s.Repo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Principal{}, ErrNotFound
+		}
+		return Principal{}, err
+	}
+	return Principal{User: user, Profile: profile}, nil
 }
 
 func (s *UserService) ResetUserPassword(ctx context.Context, actor Principal, userID uuid.UUID, input ResetUserPasswordInput) error {

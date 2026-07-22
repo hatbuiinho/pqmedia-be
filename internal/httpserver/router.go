@@ -54,6 +54,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.Goo
 		DriveSync: driveSync,
 		User: &service.UserService{
 			Repo:            repo,
+			Storage:         store,
 			JWTSecret:       cfg.JWTSecret,
 			AccessTokenTTL:  cfg.AccessTokenTTL,
 			RefreshTokenTTL: cfg.RefreshTokenTTL,
@@ -97,8 +98,8 @@ func NewRouter(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger) (http.H
 }
 
 func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, svc Services) http.Handler {
-	authHandler := handlers.AuthHandler{Service: svc.User}
-	userHandler := handlers.UserHandler{Service: svc.User}
+	authHandler := handlers.AuthHandler{Service: svc.User, Storage: svc.Storage}
+	userHandler := handlers.UserHandler{Service: svc.User, Storage: svc.Storage}
 	postHandler := handlers.PostHandler{Service: svc.Post}
 	commentHandler := handlers.CommentHandler{Service: svc.Comment}
 	reactionHandler := handlers.ReactionHandler{Service: svc.Reaction}
@@ -134,6 +135,7 @@ func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Log
 
 		p.Get("/me", authHandler.Me)
 		p.Patch("/me/profile", userHandler.UpdateOwnProfile)
+		p.Put("/me/avatar", userHandler.UpdateOwnAvatar)
 		p.Post("/me/change-password", userHandler.UpdateOwnPassword)
 		p.Post("/auth/logout", authHandler.Logout)
 
