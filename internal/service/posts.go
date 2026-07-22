@@ -30,6 +30,7 @@ type PostAttachment struct {
 type Post struct {
 	repository.Post
 	Author       PostAuthor
+	ApprovedBy   *PostAuthor
 	Attachments  []PostAttachment
 	Hashtags     []string
 	CommentCount int
@@ -116,10 +117,14 @@ func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter rep
 	if err != nil {
 		return nil, Page{}, err
 	}
+	approvedBy, err := s.loadPostApprovers(ctx, posts)
+	if err != nil {
+		return nil, Page{}, err
+	}
 
 	out := make([]Post, len(posts))
 	for i, p := range posts {
-		composed := s.composePost(p, users[i], profiles[i], attachments[p.ID], driveSyncs, commentCounts[p.ID], hashtags[p.ID])
+		composed := s.composePost(p, users[i], profiles[i], approvedBy[p.ID], attachments[p.ID], driveSyncs, commentCounts[p.ID], hashtags[p.ID])
 		composed.Reactions = toReactionSummaries(reactions[p.ID])
 		composed.Publications = toPublications(publications[p.ID], s.Storage.BuildPublicURL)
 		out[i] = composed
@@ -167,7 +172,11 @@ func (s *PostService) GetPost(ctx context.Context, viewer Principal, id uuid.UUI
 	if err != nil {
 		return Post{}, err
 	}
-	composed := s.composePost(post, author, profile, attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
+	approvedBy, err := s.loadPostApprovers(ctx, []repository.Post{post})
+	if err != nil {
+		return Post{}, err
+	}
+	composed := s.composePost(post, author, profile, approvedBy[post.ID], attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
 	composed.Reactions = toReactionSummaries(reactions[post.ID])
 	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
 	return composed, nil
@@ -203,7 +212,8 @@ func (s *PostService) Create(ctx context.Context, viewer Principal, input Create
 	author, _ := s.Repo.GetUserByID(ctx, post.AuthorUserID)
 	profile, _ := s.Repo.GetProfile(ctx, post.AuthorUserID)
 	driveSyncs, _ := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(atts))
-	return s.composePost(post, author, profile, atts, driveSyncs, 0, input.Hashtags), nil
+	approvedBy, _ := s.loadPostApprovers(ctx, []repository.Post{post})
+	return s.composePost(post, author, profile, approvedBy[post.ID], atts, driveSyncs, 0, input.Hashtags), nil
 }
 
 func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID, input UpdatePostInput) (Post, error) {
@@ -258,9 +268,65 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 	reactions, _ := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{updated.ID})
 	publications, _ := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{updated.ID})
 	driveSyncs, _ := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(atts))
-	composed := s.composePost(updated, author, profile, atts, driveSyncs, counts[updated.ID], hashtags[updated.ID])
+	approvedBy, _ := s.loadPostApprovers(ctx, []repository.Post{updated})
+	composed := s.composePost(updated, author, profile, approvedBy[updated.ID], atts, driveSyncs, counts[updated.ID], hashtags[updated.ID])
 	composed.Reactions = toReactionSummaries(reactions[updated.ID])
 	composed.Publications = toPublications(publications[updated.ID], s.Storage.BuildPublicURL)
+	return composed, nil
+}
+
+func (s *PostService) UpdateApproval(ctx context.Context, viewer Principal, id uuid.UUID, isApproved bool) (Post, error) {
+	if !viewer.User.IsAdmin {
+		return Post{}, ErrForbidden
+	}
+
+	post, err := s.Repo.UpdatePostApproval(ctx, id, isApproved, &viewer.User.ID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Post{}, ErrNotFound
+		}
+		return Post{}, err
+	}
+
+	author, err := s.Repo.GetUserByID(ctx, post.AuthorUserID)
+	if err != nil {
+		return Post{}, err
+	}
+	profile, err := s.Repo.GetProfile(ctx, post.AuthorUserID)
+	if err != nil {
+		return Post{}, err
+	}
+	attachments, err := s.Repo.ListAttachmentsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	driveSyncs, err := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDsFromMap(attachments))
+	if err != nil {
+		return Post{}, err
+	}
+	counts, err := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	reactions, err := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	publications, err := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	hashtags, err := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	approvedBy, err := s.loadPostApprovers(ctx, []repository.Post{post})
+	if err != nil {
+		return Post{}, err
+	}
+	composed := s.composePost(post, author, profile, approvedBy[post.ID], attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
+	composed.Reactions = toReactionSummaries(reactions[post.ID])
+	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
 	return composed, nil
 }
 
@@ -308,6 +374,7 @@ func (s *PostService) composePost(
 	post repository.Post,
 	author repository.User,
 	profile repository.Profile,
+	approvedBy *PostAuthor,
 	attachments []repository.PostAttachment,
 	driveSyncs map[uuid.UUID]repository.AttachmentDriveSync,
 	commentCount int,
@@ -328,6 +395,7 @@ func (s *PostService) composePost(
 	return Post{
 		Post:         post,
 		Author:       s.authorView(author, profile),
+		ApprovedBy:   approvedBy,
 		Attachments:  enriched,
 		Hashtags:     hashtags,
 		CommentCount: commentCount,
@@ -360,6 +428,57 @@ func (s *PostService) authorView(u repository.User, p repository.Profile) PostAu
 		avatar = s.Storage.BuildPublicURL(*p.AvatarObjectKey)
 	}
 	return PostAuthor{ID: u.ID, FullName: p.FullName, AvatarURL: avatar}
+}
+
+func (s *PostService) loadPostApprovers(ctx context.Context, posts []repository.Post) (map[uuid.UUID]*PostAuthor, error) {
+	approverIDs := make([]uuid.UUID, 0, len(posts))
+	seen := make(map[uuid.UUID]struct{}, len(posts))
+	for _, post := range posts {
+		if post.ApprovedByUserID == nil {
+			continue
+		}
+		if _, ok := seen[*post.ApprovedByUserID]; ok {
+			continue
+		}
+		seen[*post.ApprovedByUserID] = struct{}{}
+		approverIDs = append(approverIDs, *post.ApprovedByUserID)
+	}
+	if len(approverIDs) == 0 {
+		return map[uuid.UUID]*PostAuthor{}, nil
+	}
+
+	users, err := s.Repo.ListUsersByIDs(ctx, approverIDs)
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := s.Repo.ListProfilesByUserIDs(ctx, approverIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	userByID := make(map[uuid.UUID]repository.User, len(users))
+	for _, user := range users {
+		userByID[user.ID] = user
+	}
+	profileByID := make(map[uuid.UUID]repository.Profile, len(profiles))
+	for _, profile := range profiles {
+		profileByID[profile.UserID] = profile
+	}
+
+	out := make(map[uuid.UUID]*PostAuthor, len(posts))
+	for _, post := range posts {
+		if post.ApprovedByUserID == nil {
+			continue
+		}
+		user, okUser := userByID[*post.ApprovedByUserID]
+		profile, okProfile := profileByID[*post.ApprovedByUserID]
+		if !okUser || !okProfile {
+			continue
+		}
+		author := s.authorView(user, profile)
+		out[post.ID] = &author
+	}
+	return out, nil
 }
 
 func (s *PostService) attachmentURL(a repository.PostAttachment) string {

@@ -154,6 +154,7 @@ func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Log
 		p.Post("/posts", postHandler.Create)
 		p.Get("/posts/{postID}", postHandler.Get)
 		p.Patch("/posts/{postID}", postHandler.Update)
+		p.Put("/posts/{postID}/approval", postHandler.UpdateApproval)
 		p.Delete("/posts/{postID}", postHandler.Delete)
 
 		p.Get("/hashtags", postHandler.SearchHashtags)

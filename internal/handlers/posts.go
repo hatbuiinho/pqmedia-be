@@ -61,6 +61,10 @@ type updatePostRequest struct {
 	Hashtags            *[]string          `json:"hashtags,omitempty"`
 }
 
+type updatePostApprovalRequest struct {
+	IsApproved bool `json:"is_approved"`
+}
+
 type postFeedResponse struct {
 	Items []PostDTO   `json:"items"`
 	Page  PageMetaDTO `json:"page"`
@@ -87,6 +91,14 @@ func (h PostHandler) ListFeed(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		filter.PublicationFilters = parsed
+	}
+	if raw := r.URL.Query().Get("approval_filter"); raw != "" {
+		parsed, err := parseApprovalFilter(raw)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_approval_filter", err.Error())
+			return
+		}
+		filter.ApprovalState = parsed
 	}
 	filter.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	filter.Offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
@@ -181,6 +193,26 @@ func (h PostHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h PostHandler) UpdateApproval(w http.ResponseWriter, r *http.Request) {
+	viewer := authctx.MustPrincipal(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "postID"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_post_id", err.Error())
+		return
+	}
+	var body updatePostApprovalRequest
+	if err := httpx.ReadJSON(r, &body); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	post, err := h.Service.UpdateApproval(r.Context(), viewer, id, body.IsApproved)
+	if err != nil {
+		WriteServiceError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, ToPost(post))
+}
+
 func (h PostHandler) SearchHashtags(w http.ResponseWriter, r *http.Request) {
 	_ = authctx.MustPrincipal(r.Context()) // require auth
 	q := r.URL.Query().Get("q")
@@ -234,6 +266,16 @@ func parsePublicationFilters(raw string) ([]repository.PublicationFilter, error)
 		})
 	}
 	return out, nil
+}
+
+func parseApprovalFilter(raw string) (*repository.ApprovalFilterState, error) {
+	state := repository.ApprovalFilterState(strings.TrimSpace(raw))
+	switch state {
+	case repository.ApprovalFilterApproved, repository.ApprovalFilterPending:
+		return &state, nil
+	default:
+		return nil, fmt.Errorf("invalid approval filter state %q", raw)
+	}
 }
 
 func splitNonEmpty(s string, sep rune) []string {

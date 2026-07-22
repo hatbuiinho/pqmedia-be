@@ -224,6 +224,7 @@ type PublicationDTO struct {
 type PostDTO struct {
 	ID                  string               `json:"id"`
 	Author              PostAuthorDTO        `json:"author"`
+	ApprovedBy          *PostAuthorDTO       `json:"approved_by,omitempty"`
 	Content             string               `json:"content"`
 	DriveTargetFolderID *string              `json:"drive_target_folder_id,omitempty"`
 	Attachments         []PostAttachmentDTO  `json:"attachments"`
@@ -231,6 +232,8 @@ type PostDTO struct {
 	CommentCount        int                  `json:"comment_count"`
 	Reactions           []ReactionSummaryDTO `json:"reactions"`
 	Publications        []PublicationDTO     `json:"publications"`
+	IsApproved          bool                 `json:"is_approved"`
+	ApprovedAt          *time.Time           `json:"approved_at,omitempty"`
 	CreatedAt           time.Time            `json:"created_at"`
 	UpdatedAt           time.Time            `json:"updated_at"`
 }
@@ -326,6 +329,14 @@ func ToPost(p service.Post) PostDTO {
 		a := p.Author.AvatarURL
 		avatar = &a
 	}
+	var approvedBy *PostAuthorDTO
+	if p.ApprovedBy != nil {
+		approvedBy = &PostAuthorDTO{
+			ID:        p.ApprovedBy.ID.String(),
+			FullName:  p.ApprovedBy.FullName,
+			AvatarURL: stringPtr(p.ApprovedBy.AvatarURL),
+		}
+	}
 	return PostDTO{
 		ID: p.ID.String(),
 		Author: PostAuthorDTO{
@@ -333,6 +344,7 @@ func ToPost(p service.Post) PostDTO {
 			FullName:  p.Author.FullName,
 			AvatarURL: avatar,
 		},
+		ApprovedBy:          approvedBy,
 		Content:             p.Content,
 		DriveTargetFolderID: p.DriveTargetFolderID,
 		Attachments:         attachments,
@@ -340,6 +352,8 @@ func ToPost(p service.Post) PostDTO {
 		CommentCount:        p.CommentCount,
 		Reactions:           reactions,
 		Publications:        publications,
+		IsApproved:          p.IsApproved,
+		ApprovedAt:          p.ApprovedAt,
 		CreatedAt:           p.CreatedAt,
 		UpdatedAt:           p.UpdatedAt,
 	}

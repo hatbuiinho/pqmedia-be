@@ -235,6 +235,31 @@ func (r *Repo) ListUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]User, err
 	return out, rows.Err()
 }
 
+func (r *Repo) ListProfilesByUserIDs(ctx context.Context, ids []uuid.UUID) ([]Profile, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT user_id, full_name, dharma_name, birth_year, phone, ctn, avatar_bucket, avatar_object_key, updated_at
+		FROM user_profiles
+		WHERE user_id = ANY($1)
+	`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list profiles by user ids: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Profile, 0, len(ids))
+	for rows.Next() {
+		var p Profile
+		if err := rows.Scan(&p.UserID, &p.FullName, &p.DharmaName, &p.BirthYear, &p.Phone, &p.CTN, &p.AvatarBucket, &p.AvatarObjectKey, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan profile by user id: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repo) UpdateUserActive(ctx context.Context, id uuid.UUID, isActive bool) error {
 	_, err := r.pool.Exec(ctx, `UPDATE users SET is_active = $2, updated_at = now() WHERE id = $1`, id, isActive)
 	if err != nil {

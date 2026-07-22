@@ -22,6 +22,9 @@ type Post struct {
 	AuthorUserID        uuid.UUID
 	Content             string
 	DriveTargetFolderID *string
+	IsApproved          bool
+	ApprovedAt          *time.Time
+	ApprovedByUserID    *uuid.UUID
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -92,10 +95,18 @@ type FeedFilter struct {
 	AuthorUserID       *uuid.UUID
 	Search             string
 	Hashtag            string
+	ApprovalState      *ApprovalFilterState
 	PublicationFilters []PublicationFilter
 	Limit              int
 	Offset             int
 }
+
+type ApprovalFilterState string
+
+const (
+	ApprovalFilterApproved ApprovalFilterState = "approved"
+	ApprovalFilterPending  ApprovalFilterState = "pending"
+)
 
 type PublicationFilterState string
 
@@ -120,9 +131,9 @@ func (r *Repo) CreatePost(ctx context.Context, params CreatePostParams) (Post, [
 	err = tx.QueryRow(ctx, `
 		INSERT INTO posts (author_user_id, content, drive_target_folder_id)
 		VALUES ($1, $2, $3)
-		RETURNING id, author_user_id, content, drive_target_folder_id, created_at, updated_at
+		RETURNING id, author_user_id, content, drive_target_folder_id, is_approved, approved_at, approved_by_user_id, created_at, updated_at
 	`, params.AuthorUserID, params.Content, params.DriveTargetFolderID).
-		Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt)
+		Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.IsApproved, &post.ApprovedAt, &post.ApprovedByUserID, &post.CreatedAt, &post.UpdatedAt)
 	if err != nil {
 		return Post{}, nil, fmt.Errorf("insert post: %w", err)
 	}
@@ -143,9 +154,9 @@ func (r *Repo) CreatePost(ctx context.Context, params CreatePostParams) (Post, [
 func (r *Repo) GetPost(ctx context.Context, id uuid.UUID) (Post, error) {
 	var p Post
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, author_user_id, content, drive_target_folder_id, created_at, updated_at
+		SELECT id, author_user_id, content, drive_target_folder_id, is_approved, approved_at, approved_by_user_id, created_at, updated_at
 		FROM posts WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&p.ID, &p.AuthorUserID, &p.Content, &p.DriveTargetFolderID, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.AuthorUserID, &p.Content, &p.DriveTargetFolderID, &p.IsApproved, &p.ApprovedAt, &p.ApprovedByUserID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if isNoRows(err) {
 			return Post{}, ErrNotFound
@@ -166,8 +177,8 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, dri
 	err = tx.QueryRow(ctx, `
 		UPDATE posts SET content = $2, drive_target_folder_id = $3, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING id, author_user_id, content, drive_target_folder_id, created_at, updated_at
-	`, id, content, driveTargetFolderID).Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt)
+		RETURNING id, author_user_id, content, drive_target_folder_id, is_approved, approved_at, approved_by_user_id, created_at, updated_at
+	`, id, content, driveTargetFolderID).Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.IsApproved, &post.ApprovedAt, &post.ApprovedByUserID, &post.CreatedAt, &post.UpdatedAt)
 	if err != nil {
 		if isNoRows(err) {
 			return Post{}, nil, ErrNotFound
@@ -382,6 +393,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	if filter.Offset < 0 {
 		filter.Offset = 0
 	}
+	filter.ApprovalState = normalizeApprovalFilterState(filter.ApprovalState)
 	filter.PublicationFilters = normalizePublicationFilters(filter.PublicationFilters)
 
 	where := "WHERE posts.deleted_at IS NULL"
@@ -400,6 +412,14 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	}
 	if filter.Hashtag != "" {
 		where += " AND EXISTS (SELECT 1 FROM post_hashtags ph JOIN hashtags h ON ph.hashtag_id = h.id WHERE ph.post_id = posts.id AND h.name = " + addArg(filter.Hashtag) + ")"
+	}
+	if filter.ApprovalState != nil {
+		switch *filter.ApprovalState {
+		case ApprovalFilterApproved:
+			where += " AND posts.is_approved = TRUE"
+		case ApprovalFilterPending:
+			where += " AND posts.is_approved = FALSE"
+		}
 	}
 	for _, publicationFilter := range filter.PublicationFilters {
 		platformArg := addArg(publicationFilter.Platform)
@@ -431,7 +451,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	limitArg := addArg(filter.Limit)
 	offsetArg := addArg(filter.Offset)
 	rows, err := r.pool.Query(ctx, `
-		SELECT posts.id, posts.author_user_id, posts.content, posts.drive_target_folder_id, posts.created_at, posts.updated_at,
+		SELECT posts.id, posts.author_user_id, posts.content, posts.drive_target_folder_id, posts.is_approved, posts.approved_at, posts.approved_by_user_id, posts.created_at, posts.updated_at,
 		       u.id, u.email, u.password_hash, u.is_admin, u.can_manage_publications, u.is_active, u.created_at, u.updated_at,
 		       p.user_id, p.full_name, p.dharma_name, p.birth_year, p.phone, p.ctn, p.avatar_bucket, p.avatar_object_key, p.updated_at
 		FROM posts
@@ -455,7 +475,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		var user User
 		var profile Profile
 		if err := rows.Scan(
-			&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt,
+			&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.IsApproved, &post.ApprovedAt, &post.ApprovedByUserID, &post.CreatedAt, &post.UpdatedAt,
 			&user.ID, &user.Email, &user.PasswordHash, &user.IsAdmin, &user.CanManagePublications, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
 			&profile.UserID, &profile.FullName, &profile.DharmaName, &profile.BirthYear, &profile.Phone, &profile.CTN, &profile.AvatarBucket, &profile.AvatarObjectKey, &profile.UpdatedAt,
 		); err != nil {
@@ -493,6 +513,48 @@ func normalizePublicationFilters(filters []PublicationFilter) []PublicationFilte
 		return nil
 	}
 	return out
+}
+
+func normalizeApprovalFilterState(state *ApprovalFilterState) *ApprovalFilterState {
+	if state == nil {
+		return nil
+	}
+	switch *state {
+	case ApprovalFilterApproved, ApprovalFilterPending:
+		return state
+	default:
+		return nil
+	}
+}
+
+func (r *Repo) UpdatePostApproval(ctx context.Context, id uuid.UUID, isApproved bool, approvedByUserID *uuid.UUID) (Post, error) {
+	var post Post
+	err := r.pool.QueryRow(ctx, `
+		UPDATE posts
+		SET is_approved = $2,
+		    approved_at = CASE WHEN $2 THEN now() ELSE NULL END,
+		    approved_by_user_id = CASE WHEN $2 THEN $3::uuid ELSE NULL::uuid END,
+		    updated_at = now()
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING id, author_user_id, content, drive_target_folder_id, is_approved, approved_at, approved_by_user_id, created_at, updated_at
+	`, id, isApproved, approvedByUserID).Scan(
+		&post.ID,
+		&post.AuthorUserID,
+		&post.Content,
+		&post.DriveTargetFolderID,
+		&post.IsApproved,
+		&post.ApprovedAt,
+		&post.ApprovedByUserID,
+		&post.CreatedAt,
+		&post.UpdatedAt,
+	)
+	if err != nil {
+		if isNoRows(err) {
+			return Post{}, ErrNotFound
+		}
+		return Post{}, fmt.Errorf("update post approval: %w", err)
+	}
+	return post, nil
 }
 
 // ListAttachmentsByPosts returns attachments grouped by post_id, ordered by sort_order.
