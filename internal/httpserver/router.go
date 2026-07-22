@@ -42,6 +42,12 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.Goo
 		Logger: logger,
 	}
 	driveOAuth := service.NewGoogleDriveOAuthService(repo, drive, cfg.GoogleDrive, cfg.JWTSecret, cfg.AllowedOrigins, logger)
+	driveFolders := &service.DriveFolderService{
+		Repo:                repo,
+		DriveOAuth:          driveOAuth,
+		Logger:              logger,
+		DefaultRootFolderID: cfg.GoogleDrive.RootFolderID,
+	}
 	driveSync := service.NewDriveSyncService(repo, store, driveOAuth, cfg.GoogleDrive, logger)
 	return Services{
 		Storage:   store,
@@ -52,7 +58,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.Goo
 			AccessTokenTTL:  cfg.AccessTokenTTL,
 			RefreshTokenTTL: cfg.RefreshTokenTTL,
 		},
-		Post:        &service.PostService{Repo: repo, Storage: store, DriveSync: driveSync},
+		Post:        &service.PostService{Repo: repo, Storage: store, DriveSync: driveSync, DriveFolders: driveFolders},
 		Comment:     &service.CommentService{Repo: repo, Storage: store, Notification: notif},
 		Reaction:    &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
 		Publication: &service.PublicationService{Repo: repo, Storage: store},
@@ -61,6 +67,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.Goo
 		Settings: &service.SettingsService{
 			Repo:                     repo,
 			DriveOAuth:               driveOAuth,
+			DriveFolders:             driveFolders,
 			DriveSyncEnabled:         cfg.GoogleDrive.Enabled,
 			DefaultDriveRootFolderID: cfg.GoogleDrive.RootFolderID,
 		},
@@ -155,6 +162,8 @@ func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Log
 		p.Delete("/platforms/{platformKey}", platformHandler.Delete)
 		p.Get("/settings/drive", settingsHandler.GetDriveSettings)
 		p.Patch("/settings/drive", settingsHandler.UpdateDriveSettings)
+		p.Get("/settings/drive/folders", settingsHandler.ListDriveFolders)
+		p.Post("/settings/drive/folders/refresh", settingsHandler.RefreshDriveFolders)
 		p.Post("/settings/drive/oauth/start", settingsHandler.StartGoogleDriveOAuth)
 		p.Delete("/settings/drive/oauth/connection", settingsHandler.DisconnectGoogleDriveOAuth)
 

@@ -48,15 +48,17 @@ func (a attachmentInput) toRepo() repository.PostAttachmentInput {
 }
 
 type createPostRequest struct {
-	Content     string            `json:"content"`
-	Attachments []attachmentInput `json:"attachments"`
-	Hashtags    []string          `json:"hashtags"`
+	Content             string            `json:"content"`
+	DriveTargetFolderID *string           `json:"drive_target_folder_id"`
+	Attachments         []attachmentInput `json:"attachments"`
+	Hashtags            []string          `json:"hashtags"`
 }
 
 type updatePostRequest struct {
-	Content     *string            `json:"content,omitempty"`
-	Attachments *[]attachmentInput `json:"attachments,omitempty"`
-	Hashtags    *[]string          `json:"hashtags,omitempty"`
+	Content             *string            `json:"content,omitempty"`
+	DriveTargetFolderID *string            `json:"drive_target_folder_id,omitempty"`
+	Attachments         *[]attachmentInput `json:"attachments,omitempty"`
+	Hashtags            *[]string          `json:"hashtags,omitempty"`
 }
 
 type postFeedResponse struct {
@@ -109,9 +111,10 @@ func (h PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	post, err := h.Service.Create(r.Context(), viewer, service.CreatePostInput{
-		Content:     body.Content,
-		Attachments: toAttachmentInputs(body.Attachments),
-		Hashtags:    body.Hashtags,
+		Content:             body.Content,
+		DriveTargetFolderID: body.DriveTargetFolderID,
+		Attachments:         toAttachmentInputs(body.Attachments),
+		Hashtags:            body.Hashtags,
 	})
 	if err != nil {
 		WriteServiceError(w, err)
@@ -147,7 +150,11 @@ func (h PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
 		return
 	}
-	input := service.UpdatePostInput{Content: body.Content, Hashtags: body.Hashtags}
+	input := service.UpdatePostInput{
+		Content:             body.Content,
+		DriveTargetFolderID: body.DriveTargetFolderID,
+		Hashtags:            body.Hashtags,
+	}
 	if body.Attachments != nil {
 		inputs := toAttachmentInputs(*body.Attachments)
 		input.Attachments = &inputs

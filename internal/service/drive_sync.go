@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -129,20 +130,28 @@ func (s *DriveSyncService) processJob(parentCtx context.Context, job repository.
 	defer closeQuietly(reader)
 
 	rootFolderID, rootFolderSource := s.resolveDriveRootFolderID(ctx)
+	targetFolderID, targetFolderSource, err := s.resolveUploadFolderID(ctx, job.PostTargetFolderID)
+	if err != nil {
+		s.failJob(ctx, job, err)
+		return
+	}
 	s.Logger.Info("drive sync upload starting",
 		slog.String("attachment_id", job.Attachment.ID.String()),
 		slog.String("post_id", job.Attachment.PostID.String()),
 		slog.String("object_key", job.Attachment.ObjectKey),
 		slog.String("root_folder_id", rootFolderID),
 		slog.String("root_folder_source", rootFolderSource),
+		slog.String("target_folder_id", targetFolderID),
+		slog.String("target_folder_source", targetFolderSource),
 		slog.Bool("has_root_folder_id", rootFolderID != ""),
 		slog.String("content_type", job.Attachment.ContentType),
 	)
 	result, err := s.Drive.UploadVideo(
 		ctx,
-		rootFolderID,
+		targetFolderID,
 		s.driveFileName(job.Attachment),
 		job.Attachment.ContentType,
+		s.driveUploadMetadata(job.Attachment),
 		reader,
 	)
 	if err != nil {
@@ -169,6 +178,8 @@ func (s *DriveSyncService) processJob(parentCtx context.Context, job repository.
 		slog.String("drive_file_id", result.FileID),
 		slog.String("root_folder_id", rootFolderID),
 		slog.String("root_folder_source", rootFolderSource),
+		slog.String("target_folder_id", targetFolderID),
+		slog.String("target_folder_source", targetFolderSource),
 		slog.Bool("drive_folder_id_present", result.FolderID != nil && strings.TrimSpace(*result.FolderID) != ""),
 	)
 }
@@ -230,7 +241,41 @@ func (s *DriveSyncService) retryDelay(attempt int) time.Duration {
 }
 
 func (s *DriveSyncService) driveFileName(attachment repository.PostAttachment) string {
-	return attachment.PostID.String() + "_" + attachment.ID.String() + "_" + attachment.FileName
+	original := strings.TrimSpace(attachment.FileName)
+	ext := filepath.Ext(original)
+	base := strings.TrimSpace(strings.TrimSuffix(original, ext))
+	base = sanitizeDriveFileBase(base)
+	if base == "" {
+		base = "file"
+	}
+	if ext != "" {
+		ext = sanitizeDriveExtension(ext)
+	}
+	return fmt.Sprintf(
+		"%s__post-%s__att-%s%s",
+		base,
+		shortUUID(attachment.PostID.String()),
+		shortUUID(attachment.ID.String()),
+		ext,
+	)
+}
+
+func (s *DriveSyncService) driveUploadMetadata(attachment repository.PostAttachment) storage.DriveUploadMetadata {
+	original := strings.TrimSpace(attachment.FileName)
+	return storage.DriveUploadMetadata{
+		AppProperties: map[string]string{
+			"app":                        "pqmedia",
+			"pqmedia_post_id":            attachment.PostID.String(),
+			"pqmedia_attachment_id":      attachment.ID.String(),
+			"pqmedia_original_file_name": original,
+		},
+		Description: fmt.Sprintf(
+			"PQMedia upload | post=%s | attachment=%s | original=%s",
+			attachment.PostID.String(),
+			attachment.ID.String(),
+			original,
+		),
+	}
 }
 
 func (s *DriveSyncService) resolveDriveRootFolderID(ctx context.Context) (string, string) {
@@ -246,6 +291,25 @@ func (s *DriveSyncService) resolveDriveRootFolderID(ctx context.Context) (string
 		return s.DefaultRootFolderID, "env_default"
 	}
 	return "", "empty"
+}
+
+func (s *DriveSyncService) resolveUploadFolderID(ctx context.Context, postTargetFolderID *string) (string, string, error) {
+	target := strings.TrimSpace(derefString(postTargetFolderID))
+	if target != "" {
+		return target, "post_target_folder", nil
+	}
+	rootFolderID, _ := s.resolveDriveRootFolderID(ctx)
+	if rootFolderID == "" {
+		return "", "", fmt.Errorf("google drive root folder is not configured")
+	}
+	items, _, err := s.Repo.ListGoogleDriveFoldersByRoot(ctx, rootFolderID)
+	if err != nil {
+		return "", "", fmt.Errorf("list google drive folders: %w", err)
+	}
+	if len(items) == 0 {
+		return rootFolderID, "root_folder_fallback", nil
+	}
+	return "", "", fmt.Errorf("drive target folder is required for video upload")
 }
 
 func (s *DriveSyncService) isPermanentFailure(message string) bool {
@@ -270,4 +334,61 @@ func (s *DriveSyncService) isPermanentFailure(message string) bool {
 
 func closeQuietly(reader io.ReadCloser) {
 	_ = reader.Close()
+}
+
+func shortUUID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 8 {
+		return value
+	}
+	return value[:8]
+}
+
+func sanitizeDriveFileBase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"/", "-",
+		"\\", "-",
+		":", "-",
+		"*", "-",
+		"?", "",
+		"\"", "'",
+		"<", "(",
+		">", ")",
+		"|", "-",
+		"\n", " ",
+		"\r", " ",
+		"\t", " ",
+	)
+	value = replacer.Replace(value)
+	value = strings.Join(strings.Fields(value), " ")
+	const maxBaseLen = 96
+	runes := []rune(value)
+	if len(runes) > maxBaseLen {
+		value = strings.TrimSpace(string(runes[:maxBaseLen]))
+	}
+	return value
+}
+
+func sanitizeDriveExtension(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"/", "",
+		"\\", "",
+		":", "",
+		"*", "",
+		"?", "",
+		"\"", "",
+		"<", "",
+		">", "",
+		"|", "",
+		" ", "",
+	)
+	return replacer.Replace(value)
 }

@@ -10,8 +10,9 @@ import (
 )
 
 type AttachmentDriveSyncJob struct {
-	Sync       AttachmentDriveSync
-	Attachment PostAttachment
+	Sync               AttachmentDriveSync
+	Attachment         PostAttachment
+	PostTargetFolderID *string
 }
 
 func (r *Repo) QueueAttachmentDriveSyncs(ctx context.Context, attachments []PostAttachment) error {
@@ -110,15 +111,17 @@ func (r *Repo) ClaimAttachmentDriveSyncBatch(ctx context.Context, limit int) ([]
 		    last_attempt_at = now(),
 		    error_message = NULL,
 		    updated_at = now()
-		FROM picked, post_attachments pa
+		FROM picked, post_attachments pa, posts p
 		WHERE ads.attachment_id = picked.attachment_id
 		  AND pa.id = ads.attachment_id
+		  AND p.id = pa.post_id
 		RETURNING
 			ads.attachment_id, ads.status, ads.drive_file_id, ads.drive_folder_id, ads.web_view_link,
 			ads.web_content_link, ads.error_message, ads.attempt_count, ads.next_attempt_at,
 			ads.last_attempt_at, ads.uploaded_at, ads.created_at, ads.updated_at,
 			pa.id, pa.post_id, pa.kind, pa.file_name, pa.content_type, pa.bucket, pa.object_key,
-			pa.size_bytes, pa.width, pa.height, pa.duration_ms, pa.sort_order
+			pa.size_bytes, pa.width, pa.height, pa.duration_ms, pa.sort_order,
+			p.drive_target_folder_id
 	`, AttachmentVideo, AttachmentDriveSyncPending, AttachmentDriveSyncFailed, limit, AttachmentDriveSyncUploading)
 	if err != nil {
 		return nil, fmt.Errorf("claim attachment drive sync batch: %w", err)
@@ -154,6 +157,7 @@ func (r *Repo) ClaimAttachmentDriveSyncBatch(ctx context.Context, limit int) ([]
 			&job.Attachment.Height,
 			&job.Attachment.DurationMs,
 			&job.Attachment.SortOrder,
+			&job.PostTargetFolderID,
 		); err != nil {
 			return nil, fmt.Errorf("scan claimed attachment drive sync job: %w", err)
 		}

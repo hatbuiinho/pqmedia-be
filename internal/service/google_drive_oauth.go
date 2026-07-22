@@ -184,6 +184,7 @@ func (s *GoogleDriveOAuthService) UploadVideo(
 	folderID string,
 	fileName string,
 	contentType string,
+	metadata storage.DriveUploadMetadata,
 	reader io.Reader,
 ) (storage.DriveUploadResult, error) {
 	if s.Drive == nil {
@@ -208,7 +209,33 @@ func (s *GoogleDriveOAuthService) UploadVideo(
 	if err := s.Repo.MarkGoogleDriveOAuthConnectionRefreshed(ctx); err != nil {
 		s.Logger.Warn("mark google drive oauth connection refreshed", slog.String("err", err.Error()))
 	}
-	return s.Drive.UploadVideo(ctx, tokenSource, folderID, fileName, contentType, reader)
+	return s.Drive.UploadVideo(ctx, tokenSource, folderID, fileName, contentType, metadata, reader)
+}
+
+func (s *GoogleDriveOAuthService) ListFolders(ctx context.Context, rootFolderID string) ([]storage.DriveFolder, error) {
+	if s.Drive == nil {
+		return nil, fmt.Errorf("google drive uploader is not configured")
+	}
+	connection, err := s.Repo.GetGoogleDriveOAuthConnection(ctx)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("no google drive connection configured")
+		}
+		return nil, err
+	}
+	refreshToken, err := decryptSecret(s.EncryptionSecret, connection.EncryptedRefreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt google drive refresh token: %w", err)
+	}
+	tokenSource := s.OAuthConfig.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	if _, err := tokenSource.Token(); err != nil {
+		_ = s.Repo.MarkGoogleDriveOAuthConnectionError(ctx, strings.TrimSpace(err.Error()))
+		return nil, fmt.Errorf("refresh google drive access token: %w", err)
+	}
+	if err := s.Repo.MarkGoogleDriveOAuthConnectionRefreshed(ctx); err != nil {
+		s.Logger.Warn("mark google drive oauth connection refreshed", slog.String("err", err.Error()))
+	}
+	return s.Drive.ListFolders(ctx, tokenSource, rootFolderID)
 }
 
 func (s *GoogleDriveOAuthService) signState(userID uuid.UUID) (string, error) {

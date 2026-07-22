@@ -27,6 +27,7 @@ type UpdateDriveSettingsInput struct {
 type SettingsService struct {
 	Repo                     *repository.Repo
 	DriveOAuth               *GoogleDriveOAuthService
+	DriveFolders             *DriveFolderService
 	DriveSyncEnabled         bool
 	DefaultDriveRootFolderID string
 }
@@ -70,6 +71,10 @@ func (s *SettingsService) UpdateDriveSettings(ctx context.Context, actor Princip
 }
 
 func (s *SettingsService) resolveDriveRootFolderID(ctx context.Context) (string, error) {
+	if s.DriveFolders != nil {
+		rootFolderID, _, err := s.DriveFolders.ResolveRootFolderID(ctx)
+		return rootFolderID, err
+	}
 	items, err := s.Repo.ListSystemSettingsByKeys(ctx, []string{DriveRootFolderSettingKey})
 	if err != nil {
 		return "", err

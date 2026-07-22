@@ -57,21 +57,24 @@ type Publication struct {
 }
 
 type CreatePostInput struct {
-	Content     string
-	Attachments []repository.PostAttachmentInput
-	Hashtags    []string
+	Content             string
+	DriveTargetFolderID *string
+	Attachments         []repository.PostAttachmentInput
+	Hashtags            []string
 }
 
 type UpdatePostInput struct {
-	Content     *string
-	Attachments *[]repository.PostAttachmentInput
-	Hashtags    *[]string
+	Content             *string
+	DriveTargetFolderID *string
+	Attachments         *[]repository.PostAttachmentInput
+	Hashtags            *[]string
 }
 
 type PostService struct {
-	Repo      *repository.Repo
-	Storage   *storage.MinIO
-	DriveSync *DriveSyncService
+	Repo         *repository.Repo
+	Storage      *storage.MinIO
+	DriveSync    *DriveSyncService
+	DriveFolders *DriveFolderService
 }
 
 func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter repository.FeedFilter) ([]Post, Page, error) {
@@ -178,11 +181,16 @@ func (s *PostService) Create(ctx context.Context, viewer Principal, input Create
 	if len(content) > maxPostContent {
 		return Post{}, ValidationError("content too long")
 	}
+	driveTargetFolderID, err := s.normalizeDriveTargetFolderID(ctx, input.DriveTargetFolderID, input.Attachments)
+	if err != nil {
+		return Post{}, err
+	}
 	post, atts, err := s.Repo.CreatePost(ctx, repository.CreatePostParams{
-		AuthorUserID: viewer.User.ID,
-		Content:      content,
-		Attachments:  input.Attachments,
-		Hashtags:     input.Hashtags,
+		AuthorUserID:        viewer.User.ID,
+		Content:             content,
+		DriveTargetFolderID: driveTargetFolderID,
+		Attachments:         input.Attachments,
+		Hashtags:            input.Hashtags,
 	})
 	if err != nil {
 		return Post{}, err
@@ -206,7 +214,7 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 		}
 		return Post{}, err
 	}
-	if existing.AuthorUserID != viewer.User.ID {
+	if existing.AuthorUserID != viewer.User.ID && !viewer.User.IsAdmin {
 		return Post{}, ErrForbidden
 	}
 
@@ -217,11 +225,24 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 			return Post{}, ValidationError("content too long")
 		}
 	}
+	existingAttachmentMap, err := s.Repo.ListAttachmentsByPosts(ctx, []uuid.UUID{existing.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	finalAttachments := attachmentsToInputs(existingAttachmentMap[existing.ID])
 	var attachments *[]repository.PostAttachmentInput
 	if input.Attachments != nil {
 		attachments = input.Attachments
+		finalAttachments = *input.Attachments
 	}
-	updated, atts, err := s.Repo.UpdatePost(ctx, id, content, attachments, input.Hashtags)
+	driveTargetFolderID := existing.DriveTargetFolderID
+	if input.DriveTargetFolderID != nil || input.Attachments != nil {
+		driveTargetFolderID, err = s.normalizeDriveTargetFolderID(ctx, input.DriveTargetFolderID, finalAttachments)
+		if err != nil {
+			return Post{}, err
+		}
+	}
+	updated, atts, err := s.Repo.UpdatePost(ctx, id, content, driveTargetFolderID, attachments, input.Hashtags)
 	if err != nil {
 		return Post{}, err
 	}
@@ -255,6 +276,32 @@ func (s *PostService) Delete(ctx context.Context, viewer Principal, id uuid.UUID
 		return ErrForbidden
 	}
 	return s.Repo.SoftDeletePost(ctx, id)
+}
+
+func (s *PostService) normalizeDriveTargetFolderID(ctx context.Context, requested *string, attachments []repository.PostAttachmentInput) (*string, error) {
+	if s.DriveSync == nil || !s.DriveSync.Enabled || s.DriveFolders == nil {
+		return nil, nil
+	}
+	return s.DriveFolders.ResolveTargetFolderIDForPost(ctx, requested, attachments)
+}
+
+func attachmentsToInputs(items []repository.PostAttachment) []repository.PostAttachmentInput {
+	out := make([]repository.PostAttachmentInput, len(items))
+	for i, item := range items {
+		out[i] = repository.PostAttachmentInput{
+			Kind:        item.Kind,
+			FileName:    item.FileName,
+			ContentType: item.ContentType,
+			Bucket:      item.Bucket,
+			ObjectKey:   item.ObjectKey,
+			SizeBytes:   item.SizeBytes,
+			Width:       item.Width,
+			Height:      item.Height,
+			DurationMs:  item.DurationMs,
+			SortOrder:   item.SortOrder,
+		}
+	}
+	return out
 }
 
 func (s *PostService) composePost(

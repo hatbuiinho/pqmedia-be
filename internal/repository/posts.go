@@ -18,11 +18,12 @@ const (
 )
 
 type Post struct {
-	ID           uuid.UUID
-	AuthorUserID uuid.UUID
-	Content      string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                  uuid.UUID
+	AuthorUserID        uuid.UUID
+	Content             string
+	DriveTargetFolderID *string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type PostAttachment struct {
@@ -80,10 +81,11 @@ type PostAttachmentInput struct {
 }
 
 type CreatePostParams struct {
-	AuthorUserID uuid.UUID
-	Content      string
-	Attachments  []PostAttachmentInput
-	Hashtags     []string
+	AuthorUserID        uuid.UUID
+	Content             string
+	DriveTargetFolderID *string
+	Attachments         []PostAttachmentInput
+	Hashtags            []string
 }
 
 type FeedFilter struct {
@@ -116,11 +118,11 @@ func (r *Repo) CreatePost(ctx context.Context, params CreatePostParams) (Post, [
 
 	var post Post
 	err = tx.QueryRow(ctx, `
-		INSERT INTO posts (author_user_id, content)
-		VALUES ($1, $2)
-		RETURNING id, author_user_id, content, created_at, updated_at
-	`, params.AuthorUserID, params.Content).
-		Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.CreatedAt, &post.UpdatedAt)
+		INSERT INTO posts (author_user_id, content, drive_target_folder_id)
+		VALUES ($1, $2, $3)
+		RETURNING id, author_user_id, content, drive_target_folder_id, created_at, updated_at
+	`, params.AuthorUserID, params.Content, params.DriveTargetFolderID).
+		Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt)
 	if err != nil {
 		return Post{}, nil, fmt.Errorf("insert post: %w", err)
 	}
@@ -141,9 +143,9 @@ func (r *Repo) CreatePost(ctx context.Context, params CreatePostParams) (Post, [
 func (r *Repo) GetPost(ctx context.Context, id uuid.UUID) (Post, error) {
 	var p Post
 	err := r.pool.QueryRow(ctx, `
-		SELECT id, author_user_id, content, created_at, updated_at
+		SELECT id, author_user_id, content, drive_target_folder_id, created_at, updated_at
 		FROM posts WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&p.ID, &p.AuthorUserID, &p.Content, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.AuthorUserID, &p.Content, &p.DriveTargetFolderID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if isNoRows(err) {
 			return Post{}, ErrNotFound
@@ -153,7 +155,7 @@ func (r *Repo) GetPost(ctx context.Context, id uuid.UUID) (Post, error) {
 	return p, nil
 }
 
-func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, attachments *[]PostAttachmentInput, hashtags *[]string) (Post, []PostAttachment, error) {
+func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, driveTargetFolderID *string, attachments *[]PostAttachmentInput, hashtags *[]string) (Post, []PostAttachment, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Post{}, nil, fmt.Errorf("begin tx: %w", err)
@@ -162,10 +164,10 @@ func (r *Repo) UpdatePost(ctx context.Context, id uuid.UUID, content string, att
 
 	var post Post
 	err = tx.QueryRow(ctx, `
-		UPDATE posts SET content = $2, updated_at = now()
+		UPDATE posts SET content = $2, drive_target_folder_id = $3, updated_at = now()
 		WHERE id = $1 AND deleted_at IS NULL
-		RETURNING id, author_user_id, content, created_at, updated_at
-	`, id, content).Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.CreatedAt, &post.UpdatedAt)
+		RETURNING id, author_user_id, content, drive_target_folder_id, created_at, updated_at
+	`, id, content, driveTargetFolderID).Scan(&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt)
 	if err != nil {
 		if isNoRows(err) {
 			return Post{}, nil, ErrNotFound
@@ -429,7 +431,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	limitArg := addArg(filter.Limit)
 	offsetArg := addArg(filter.Offset)
 	rows, err := r.pool.Query(ctx, `
-		SELECT posts.id, posts.author_user_id, posts.content, posts.created_at, posts.updated_at,
+		SELECT posts.id, posts.author_user_id, posts.content, posts.drive_target_folder_id, posts.created_at, posts.updated_at,
 		       u.id, u.email, u.password_hash, u.is_admin, u.can_manage_publications, u.is_active, u.created_at, u.updated_at,
 		       p.user_id, p.full_name, p.phone, p.avatar_bucket, p.avatar_object_key, p.updated_at
 		FROM posts
@@ -453,7 +455,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		var user User
 		var profile Profile
 		if err := rows.Scan(
-			&post.ID, &post.AuthorUserID, &post.Content, &post.CreatedAt, &post.UpdatedAt,
+			&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt,
 			&user.ID, &user.Email, &user.PasswordHash, &user.IsAdmin, &user.CanManagePublications, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
 			&profile.UserID, &profile.FullName, &profile.Phone, &profile.AvatarBucket, &profile.AvatarObjectKey, &profile.UpdatedAt,
 		); err != nil {

@@ -128,16 +128,17 @@ type PublicationDTO struct {
 }
 
 type PostDTO struct {
-	ID           string               `json:"id"`
-	Author       PostAuthorDTO        `json:"author"`
-	Content      string               `json:"content"`
-	Attachments  []PostAttachmentDTO  `json:"attachments"`
-	Hashtags     []string             `json:"hashtags"`
-	CommentCount int                  `json:"comment_count"`
-	Reactions    []ReactionSummaryDTO `json:"reactions"`
-	Publications []PublicationDTO     `json:"publications"`
-	CreatedAt    time.Time            `json:"created_at"`
-	UpdatedAt    time.Time            `json:"updated_at"`
+	ID                  string               `json:"id"`
+	Author              PostAuthorDTO        `json:"author"`
+	Content             string               `json:"content"`
+	DriveTargetFolderID *string              `json:"drive_target_folder_id,omitempty"`
+	Attachments         []PostAttachmentDTO  `json:"attachments"`
+	Hashtags            []string             `json:"hashtags"`
+	CommentCount        int                  `json:"comment_count"`
+	Reactions           []ReactionSummaryDTO `json:"reactions"`
+	Publications        []PublicationDTO     `json:"publications"`
+	CreatedAt           time.Time            `json:"created_at"`
+	UpdatedAt           time.Time            `json:"updated_at"`
 }
 
 type PlatformDTO struct {
@@ -238,14 +239,15 @@ func ToPost(p service.Post) PostDTO {
 			FullName:  p.Author.FullName,
 			AvatarURL: avatar,
 		},
-		Content:      p.Content,
-		Attachments:  attachments,
-		Hashtags:     p.Hashtags,
-		CommentCount: p.CommentCount,
-		Reactions:    reactions,
-		Publications: publications,
-		CreatedAt:    p.CreatedAt,
-		UpdatedAt:    p.UpdatedAt,
+		Content:             p.Content,
+		DriveTargetFolderID: p.DriveTargetFolderID,
+		Attachments:         attachments,
+		Hashtags:            p.Hashtags,
+		CommentCount:        p.CommentCount,
+		Reactions:           reactions,
+		Publications:        publications,
+		CreatedAt:           p.CreatedAt,
+		UpdatedAt:           p.UpdatedAt,
 	}
 }
 
