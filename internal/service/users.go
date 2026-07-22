@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/mail"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,17 +35,32 @@ type CreateUserInput struct {
 	Email                 string
 	Password              string
 	FullName              string
+	DharmaName            *string
+	BirthYear             *int16
 	Phone                 *string
+	CTN                   *string
 	IsAdmin               bool
 	CanManagePublications bool
+	IsActive              bool
 }
 
 type UpdateUserInput struct {
 	FullName              string
+	DharmaName            *string
+	BirthYear             *int16
 	Phone                 *string
+	CTN                   *string
 	IsAdmin               bool
 	CanManagePublications bool
 	IsActive              bool
+}
+
+type UpdateProfileInput struct {
+	FullName   string
+	DharmaName *string
+	BirthYear  *int16
+	Phone      *string
+	CTN        *string
 }
 
 type ResetUserPasswordInput struct {
@@ -65,6 +81,9 @@ type UserService struct {
 	AccessTokenTTL  time.Duration
 	RefreshTokenTTL time.Duration
 	Now             func() time.Time
+
+	importSessionsMu sync.Mutex
+	importSessions   map[string]userImportSession
 }
 
 func (s *UserService) now() time.Time {
@@ -72,6 +91,77 @@ func (s *UserService) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+const (
+	maxDharmaNameLength = 80
+	maxCTNLength        = 40
+	minBirthYear        = 1900
+)
+
+type normalizedUserProfileInput struct {
+	FullName   string
+	DharmaName *string
+	BirthYear  *int16
+	Phone      *string
+	CTN        *string
+}
+
+func (s *UserService) normalizeProfileInput(input UpdateProfileInput) (normalizedUserProfileInput, error) {
+	fullName := strings.TrimSpace(input.FullName)
+	if fullName == "" {
+		return normalizedUserProfileInput{}, ValidationError("full_name is required")
+	}
+
+	dharmaName, err := normalizeOptionalString(input.DharmaName, maxDharmaNameLength, "dharma_name")
+	if err != nil {
+		return normalizedUserProfileInput{}, err
+	}
+	phone, err := normalizeOptionalString(input.Phone, 0, "phone")
+	if err != nil {
+		return normalizedUserProfileInput{}, err
+	}
+	ctn, err := normalizeOptionalString(input.CTN, maxCTNLength, "ctn")
+	if err != nil {
+		return normalizedUserProfileInput{}, err
+	}
+	birthYear, err := normalizeBirthYear(input.BirthYear, s.now())
+	if err != nil {
+		return normalizedUserProfileInput{}, err
+	}
+
+	return normalizedUserProfileInput{
+		FullName:   fullName,
+		DharmaName: dharmaName,
+		BirthYear:  birthYear,
+		Phone:      phone,
+		CTN:        ctn,
+	}, nil
+}
+
+func normalizeOptionalString(value *string, maxLen int, field string) (*string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if maxLen > 0 && len(trimmed) > maxLen {
+		return nil, ValidationError(field + " is too long")
+	}
+	return &trimmed, nil
+}
+
+func normalizeBirthYear(value *int16, now time.Time) (*int16, error) {
+	if value == nil {
+		return nil, nil
+	}
+	year := int(*value)
+	if year < minBirthYear || year > now.Year() {
+		return nil, ValidationError("birth_year is invalid")
+	}
+	return value, nil
 }
 
 func (s *UserService) Login(ctx context.Context, email, password string) (LoginResult, error) {
@@ -156,8 +246,15 @@ func (s *UserService) CreateUser(ctx context.Context, actor Principal, input Cre
 	if len(input.Password) < 8 {
 		return Principal{}, ValidationError("password must be at least 8 characters")
 	}
-	if strings.TrimSpace(input.FullName) == "" {
-		return Principal{}, ValidationError("full_name is required")
+	profileInput, err := s.normalizeProfileInput(UpdateProfileInput{
+		FullName:   input.FullName,
+		DharmaName: input.DharmaName,
+		BirthYear:  input.BirthYear,
+		Phone:      input.Phone,
+		CTN:        input.CTN,
+	})
+	if err != nil {
+		return Principal{}, err
 	}
 
 	if existing, err := s.Repo.GetUserByEmail(ctx, email); err == nil {
@@ -176,8 +273,12 @@ func (s *UserService) CreateUser(ctx context.Context, actor Principal, input Cre
 		PasswordHash:          hash,
 		IsAdmin:               input.IsAdmin,
 		CanManagePublications: input.CanManagePublications,
-		FullName:              strings.TrimSpace(input.FullName),
-		Phone:                 input.Phone,
+		IsActive:              input.IsActive,
+		FullName:              profileInput.FullName,
+		DharmaName:            profileInput.DharmaName,
+		BirthYear:             profileInput.BirthYear,
+		Phone:                 profileInput.Phone,
+		CTN:                   profileInput.CTN,
 	})
 	if err != nil {
 		return Principal{}, err
@@ -201,15 +302,15 @@ func (s *UserService) ListUsers(ctx context.Context, actor Principal, q string, 
 	return out, Page{Limit: limit, Offset: offset, Count: len(out), Total: total}, nil
 }
 
-func (s *UserService) UpdateProfile(ctx context.Context, actor Principal, userID uuid.UUID, fullName string, phone *string) (Principal, error) {
+func (s *UserService) UpdateProfile(ctx context.Context, actor Principal, userID uuid.UUID, input UpdateProfileInput) (Principal, error) {
 	if actor.User.ID != userID && !actor.User.IsAdmin {
 		return Principal{}, ErrForbidden
 	}
-	fullName = strings.TrimSpace(fullName)
-	if fullName == "" {
-		return Principal{}, ValidationError("full_name is required")
+	profileInput, err := s.normalizeProfileInput(input)
+	if err != nil {
+		return Principal{}, err
 	}
-	profile, err := s.Repo.UpdateProfile(ctx, userID, fullName, phone)
+	profile, err := s.Repo.UpdateProfile(ctx, userID, profileInput.FullName, profileInput.DharmaName, profileInput.BirthYear, profileInput.Phone, profileInput.CTN)
 	if err != nil {
 		return Principal{}, err
 	}
@@ -233,9 +334,15 @@ func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uu
 		return Principal{}, err
 	}
 
-	fullName := strings.TrimSpace(input.FullName)
-	if fullName == "" {
-		return Principal{}, ValidationError("full_name is required")
+	profileInput, err := s.normalizeProfileInput(UpdateProfileInput{
+		FullName:   input.FullName,
+		DharmaName: input.DharmaName,
+		BirthYear:  input.BirthYear,
+		Phone:      input.Phone,
+		CTN:        input.CTN,
+	})
+	if err != nil {
+		return Principal{}, err
 	}
 
 	removesActiveAdmin := existing.IsAdmin && existing.IsActive && (!input.IsAdmin || !input.IsActive)
@@ -250,8 +357,11 @@ func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uu
 	}
 
 	updated, err := s.Repo.UpdateUserWithProfile(ctx, userID, repository.UpdateUserParams{
-		FullName:              fullName,
-		Phone:                 input.Phone,
+		FullName:              profileInput.FullName,
+		DharmaName:            profileInput.DharmaName,
+		BirthYear:             profileInput.BirthYear,
+		Phone:                 profileInput.Phone,
+		CTN:                   profileInput.CTN,
 		IsAdmin:               input.IsAdmin,
 		CanManagePublications: input.CanManagePublications,
 		IsActive:              input.IsActive,

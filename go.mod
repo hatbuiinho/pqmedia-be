@@ -34,8 +34,14 @@ require (
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/minio-go/v7 v7.0.94 // indirect
 	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
+	github.com/richardlehane/mscfb v1.0.4 // indirect
+	github.com/richardlehane/msoleps v1.0.4 // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/tiendc/go-deepcopy v1.6.0 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/excelize/v2 v2.9.1 // indirect
+	github.com/xuri/nfp v0.0.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect

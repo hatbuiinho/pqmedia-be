@@ -24,10 +24,13 @@ type UserDTO struct {
 }
 
 type ProfileDTO struct {
-	UserID    string  `json:"user_id"`
-	FullName  string  `json:"full_name"`
-	Phone     *string `json:"phone"`
-	AvatarURL *string `json:"avatar_url"`
+	UserID     string  `json:"user_id"`
+	FullName   string  `json:"full_name"`
+	DharmaName *string `json:"dharma_name"`
+	BirthYear  *int16  `json:"birth_year"`
+	Phone      *string `json:"phone"`
+	CTN        *string `json:"ctn"`
+	AvatarURL  *string `json:"avatar_url"`
 }
 
 type PrincipalDTO struct {
@@ -40,6 +43,48 @@ type PageMetaDTO struct {
 	Offset int `json:"offset"`
 	Count  int `json:"count"`
 	Total  int `json:"total"`
+}
+
+type UserImportSummaryDTO struct {
+	TotalRows        int `json:"total_rows"`
+	CreateCount      int `json:"create_count"`
+	UpdateCount      int `json:"update_count"`
+	SkipCount        int `json:"skip_count"`
+	ErrorCount       int `json:"error_count"`
+	PasswordSetCount int `json:"password_set_count"`
+}
+
+type UserImportRowChangesDTO struct {
+	FullName              bool `json:"full_name"`
+	DharmaName            bool `json:"dharma_name"`
+	BirthYear             bool `json:"birth_year"`
+	Phone                 bool `json:"phone"`
+	CTN                   bool `json:"ctn"`
+	IsAdmin               bool `json:"is_admin"`
+	CanManagePublications bool `json:"can_manage_publications"`
+	IsActive              bool `json:"is_active"`
+	Password              bool `json:"password"`
+}
+
+type UserImportPreviewRowDTO struct {
+	RowNumber      int                     `json:"row_number"`
+	Email          string                  `json:"email"`
+	FullName       string                  `json:"full_name"`
+	DharmaName     *string                 `json:"dharma_name"`
+	BirthYear      *int16                  `json:"birth_year"`
+	Phone          *string                 `json:"phone"`
+	CTN            *string                 `json:"ctn"`
+	Action         string                  `json:"action"`
+	Message        string                  `json:"message"`
+	PasswordAction string                  `json:"password_action"`
+	Changes        UserImportRowChangesDTO `json:"changes"`
+}
+
+type UserImportPreviewDTO struct {
+	ImportID  string                    `json:"import_id"`
+	ExpiresAt time.Time                 `json:"expires_at"`
+	Summary   UserImportSummaryDTO      `json:"summary"`
+	Rows      []UserImportPreviewRowDTO `json:"rows"`
 }
 
 func ToUser(u repository.User) UserDTO {
@@ -55,10 +100,13 @@ func ToUser(u repository.User) UserDTO {
 
 func ToProfile(p repository.Profile, avatarURL *string) ProfileDTO {
 	return ProfileDTO{
-		UserID:    p.UserID.String(),
-		FullName:  p.FullName,
-		Phone:     p.Phone,
-		AvatarURL: avatarURL,
+		UserID:     p.UserID.String(),
+		FullName:   p.FullName,
+		DharmaName: p.DharmaName,
+		BirthYear:  p.BirthYear,
+		Phone:      p.Phone,
+		CTN:        p.CTN,
+		AvatarURL:  avatarURL,
 	}
 }
 
@@ -71,6 +119,52 @@ func ToPrincipal(p service.Principal, avatarURL *string) PrincipalDTO {
 
 func ToPageMeta(p service.Page) PageMetaDTO {
 	return PageMetaDTO{Limit: p.Limit, Offset: p.Offset, Count: p.Count, Total: p.Total}
+}
+
+func toUserImportSummaryDTO(summary service.UserImportSummary) UserImportSummaryDTO {
+	return UserImportSummaryDTO{
+		TotalRows:        summary.TotalRows,
+		CreateCount:      summary.CreateCount,
+		UpdateCount:      summary.UpdateCount,
+		SkipCount:        summary.SkipCount,
+		ErrorCount:       summary.ErrorCount,
+		PasswordSetCount: summary.PasswordSetCount,
+	}
+}
+
+func toUserImportPreviewDTO(preview service.UserImportPreview) UserImportPreviewDTO {
+	rows := make([]UserImportPreviewRowDTO, 0, len(preview.Rows))
+	for _, row := range preview.Rows {
+		rows = append(rows, UserImportPreviewRowDTO{
+			RowNumber:      row.RowNumber,
+			Email:          row.Email,
+			FullName:       row.FullName,
+			DharmaName:     row.DharmaName,
+			BirthYear:      row.BirthYear,
+			Phone:          row.Phone,
+			CTN:            row.CTN,
+			Action:         row.Action,
+			Message:        row.Message,
+			PasswordAction: row.PasswordAction,
+			Changes: UserImportRowChangesDTO{
+				FullName:              row.Changes.FullName,
+				DharmaName:            row.Changes.DharmaName,
+				BirthYear:             row.Changes.BirthYear,
+				Phone:                 row.Changes.Phone,
+				CTN:                   row.Changes.CTN,
+				IsAdmin:               row.Changes.IsAdmin,
+				CanManagePublications: row.Changes.CanManagePublications,
+				IsActive:              row.Changes.IsActive,
+				Password:              row.Changes.Password,
+			},
+		})
+	}
+	return UserImportPreviewDTO{
+		ImportID:  preview.ImportID,
+		ExpiresAt: preview.ExpiresAt,
+		Summary:   toUserImportSummaryDTO(preview.Summary),
+		Rows:      rows,
+	}
 }
 
 // ---------- Posts ----------

@@ -139,6 +139,9 @@ func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Log
 
 		p.Get("/users", userHandler.List)
 		p.Post("/users", userHandler.Create)
+		p.Get("/users/import/template", userHandler.DownloadImportTemplate)
+		p.Post("/users/import/preview", userHandler.PreviewImport)
+		p.Post("/users/import/commit", userHandler.CommitImport)
 		p.Patch("/users/{userID}", userHandler.Update)
 		p.Patch("/users/{userID}/profile", userHandler.UpdateProfile)
 		p.Post("/users/{userID}/reset-password", userHandler.ResetPassword)

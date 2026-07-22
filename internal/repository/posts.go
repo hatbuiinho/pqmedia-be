@@ -433,7 +433,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	rows, err := r.pool.Query(ctx, `
 		SELECT posts.id, posts.author_user_id, posts.content, posts.drive_target_folder_id, posts.created_at, posts.updated_at,
 		       u.id, u.email, u.password_hash, u.is_admin, u.can_manage_publications, u.is_active, u.created_at, u.updated_at,
-		       p.user_id, p.full_name, p.phone, p.avatar_bucket, p.avatar_object_key, p.updated_at
+		       p.user_id, p.full_name, p.dharma_name, p.birth_year, p.phone, p.ctn, p.avatar_bucket, p.avatar_object_key, p.updated_at
 		FROM posts
 		JOIN users u ON u.id = posts.author_user_id
 		JOIN user_profiles p ON p.user_id = u.id
@@ -457,7 +457,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		if err := rows.Scan(
 			&post.ID, &post.AuthorUserID, &post.Content, &post.DriveTargetFolderID, &post.CreatedAt, &post.UpdatedAt,
 			&user.ID, &user.Email, &user.PasswordHash, &user.IsAdmin, &user.CanManagePublications, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
-			&profile.UserID, &profile.FullName, &profile.Phone, &profile.AvatarBucket, &profile.AvatarObjectKey, &profile.UpdatedAt,
+			&profile.UserID, &profile.FullName, &profile.DharmaName, &profile.BirthYear, &profile.Phone, &profile.CTN, &profile.AvatarBucket, &profile.AvatarObjectKey, &profile.UpdatedAt,
 		); err != nil {
 			return nil, nil, nil, 0, fmt.Errorf("scan feed row: %w", err)
 		}
