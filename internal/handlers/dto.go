@@ -173,6 +173,9 @@ type PostAuthorDTO struct {
 	ID         string  `json:"id"`
 	FullName   string  `json:"full_name"`
 	DharmaName *string `json:"dharma_name,omitempty"`
+	BirthYear  *int16  `json:"birth_year,omitempty"`
+	CTN        *string `json:"ctn,omitempty"`
+	Phone      *string `json:"phone,omitempty"`
 	AvatarURL  *string `json:"avatar_url"`
 }
 
@@ -277,6 +280,9 @@ func ToComment(c service.Comment) CommentDTO {
 			ID:         c.Author.ID.String(),
 			FullName:   c.Author.FullName,
 			DharmaName: c.Author.DharmaName,
+			BirthYear:  c.Author.BirthYear,
+			CTN:        c.Author.CTN,
+			Phone:      c.Author.Phone,
 			AvatarURL:  avatar,
 		},
 		Content:   c.Content,
@@ -322,6 +328,9 @@ func ToPost(p service.Post) PostDTO {
 				ID:         pub.PublishedBy.ID.String(),
 				FullName:   pub.PublishedBy.FullName,
 				DharmaName: pub.PublishedBy.DharmaName,
+				BirthYear:  pub.PublishedBy.BirthYear,
+				CTN:        pub.PublishedBy.CTN,
+				Phone:      pub.PublishedBy.Phone,
 				AvatarURL:  stringPtr(pub.PublishedBy.AvatarURL),
 			},
 			Note: pub.Note,
@@ -338,6 +347,9 @@ func ToPost(p service.Post) PostDTO {
 			ID:         p.ApprovedBy.ID.String(),
 			FullName:   p.ApprovedBy.FullName,
 			DharmaName: p.ApprovedBy.DharmaName,
+			BirthYear:  p.ApprovedBy.BirthYear,
+			CTN:        p.ApprovedBy.CTN,
+			Phone:      p.ApprovedBy.Phone,
 			AvatarURL:  stringPtr(p.ApprovedBy.AvatarURL),
 		}
 	}
@@ -347,6 +359,9 @@ func ToPost(p service.Post) PostDTO {
 			ID:         p.Author.ID.String(),
 			FullName:   p.Author.FullName,
 			DharmaName: p.Author.DharmaName,
+			BirthYear:  p.Author.BirthYear,
+			CTN:        p.Author.CTN,
+			Phone:      p.Author.Phone,
 			AvatarURL:  avatar,
 		},
 		ApprovedBy:          approvedBy,

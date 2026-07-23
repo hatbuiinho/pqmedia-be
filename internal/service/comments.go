@@ -105,7 +105,15 @@ func authorView(u repository.User, p repository.Profile, store *storage.MinIO) P
 	if p.AvatarObjectKey != nil {
 		avatar = store.BuildPublicURL(*p.AvatarObjectKey)
 	}
-	return PostAuthor{ID: u.ID, FullName: p.FullName, DharmaName: p.DharmaName, AvatarURL: avatar}
+	return PostAuthor{
+		ID:         u.ID,
+		FullName:   p.FullName,
+		DharmaName: p.DharmaName,
+		BirthYear:  p.BirthYear,
+		CTN:        p.CTN,
+		Phone:      p.Phone,
+		AvatarURL:  avatar,
+	}
 }
 
 func toReactionSummaries(aggs []repository.ReactionAggregate) []ReactionSummary {

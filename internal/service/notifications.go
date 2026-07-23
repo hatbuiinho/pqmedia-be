@@ -43,7 +43,14 @@ func (s *NotificationService) List(ctx context.Context, viewer Principal, unread
 			actor, err := s.Repo.GetUserByID(ctx, *n.ActorUserID)
 			if err == nil {
 				profile, _ := s.Repo.GetProfile(ctx, *n.ActorUserID)
-				view := PostAuthor{ID: actor.ID, FullName: profile.FullName, DharmaName: profile.DharmaName}
+				view := PostAuthor{
+					ID:         actor.ID,
+					FullName:   profile.FullName,
+					DharmaName: profile.DharmaName,
+					BirthYear:  profile.BirthYear,
+					CTN:        profile.CTN,
+					Phone:      profile.Phone,
+				}
 				out[i].Actor = &view
 			}
 		}

@@ -154,6 +154,9 @@ func toNotificationDTO(n service.Notification) notificationDTO {
 			ID:         n.Actor.ID.String(),
 			FullName:   n.Actor.FullName,
 			DharmaName: n.Actor.DharmaName,
+			BirthYear:  n.Actor.BirthYear,
+			CTN:        n.Actor.CTN,
+			Phone:      n.Actor.Phone,
 		}
 	}
 	return notificationDTO{

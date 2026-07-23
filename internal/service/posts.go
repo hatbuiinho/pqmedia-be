@@ -19,6 +19,9 @@ type PostAuthor struct {
 	ID         uuid.UUID
 	FullName   string
 	DharmaName *string
+	BirthYear  *int16
+	CTN        *string
+	Phone      *string
 	AvatarURL  string
 }
 
@@ -428,7 +431,15 @@ func (s *PostService) authorView(u repository.User, p repository.Profile) PostAu
 	if p.AvatarObjectKey != nil {
 		avatar = s.Storage.BuildPublicURL(*p.AvatarObjectKey)
 	}
-	return PostAuthor{ID: u.ID, FullName: p.FullName, DharmaName: p.DharmaName, AvatarURL: avatar}
+	return PostAuthor{
+		ID:         u.ID,
+		FullName:   p.FullName,
+		DharmaName: p.DharmaName,
+		BirthYear:  p.BirthYear,
+		CTN:        p.CTN,
+		Phone:      p.Phone,
+		AvatarURL:  avatar,
+	}
 }
 
 func (s *PostService) loadPostApprovers(ctx context.Context, posts []repository.Post) (map[uuid.UUID]*PostAuthor, error) {
