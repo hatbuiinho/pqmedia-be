@@ -118,12 +118,13 @@ func (h ReactionHandler) GetDetails(w http.ResponseWriter, r *http.Request) {
 	dtos := make([]ReactionDetailDTO, len(details))
 	for i, d := range details {
 		dtos[i] = ReactionDetailDTO{
-			Emoji:     d.Emoji,
-			Count:     d.Count,
-			UserID:    d.UserID.String(),
-			FullName:  d.FullName,
-			AvatarURL: d.AvatarURL,
-			CreatedAt: d.CreatedAt,
+			Emoji:      d.Emoji,
+			Count:      d.Count,
+			UserID:     d.UserID.String(),
+			FullName:   d.FullName,
+			DharmaName: d.DharmaName,
+			AvatarURL:  d.AvatarURL,
+			CreatedAt:  d.CreatedAt,
 		}
 	}
 

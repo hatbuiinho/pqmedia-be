@@ -43,7 +43,7 @@ func (s *NotificationService) List(ctx context.Context, viewer Principal, unread
 			actor, err := s.Repo.GetUserByID(ctx, *n.ActorUserID)
 			if err == nil {
 				profile, _ := s.Repo.GetProfile(ctx, *n.ActorUserID)
-				view := PostAuthor{ID: actor.ID, FullName: profile.FullName}
+				view := PostAuthor{ID: actor.ID, FullName: profile.FullName, DharmaName: profile.DharmaName}
 				out[i].Actor = &view
 			}
 		}
@@ -88,7 +88,7 @@ func (s *NotificationService) OnPostComment(ctx context.Context, post repository
 	postIDCopy := post.ID
 	commentIDCopy := comment.ID
 	actorIDCopy := actor.User.ID
-	title := fmt.Sprintf("%s đã bình luận", actor.Profile.FullName)
+	title := fmt.Sprintf("%s đã bình luận", preferredProfileName(actor.Profile))
 	body := truncate(comment.Content, 140)
 	route := fmt.Sprintf("/posts/%s", post.ID)
 
@@ -131,7 +131,7 @@ func (s *NotificationService) OnReaction(ctx context.Context, target repository.
 		return
 	}
 	actorIDCopy := actor.User.ID
-	title := fmt.Sprintf("%s đã thả %s", actor.Profile.FullName, emoji)
+	title := fmt.Sprintf("%s đã thả %s", preferredProfileName(actor.Profile), emoji)
 	route := fmt.Sprintf("/posts/%s", postID)
 	payload := map[string]any{
 		"post_id":   postID.String(),

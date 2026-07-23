@@ -151,8 +151,9 @@ func toNotificationDTO(n service.Notification) notificationDTO {
 	var actor *PostAuthorDTO
 	if n.Actor != nil {
 		actor = &PostAuthorDTO{
-			ID:       n.Actor.ID.String(),
-			FullName: n.Actor.FullName,
+			ID:         n.Actor.ID.String(),
+			FullName:   n.Actor.FullName,
+			DharmaName: n.Actor.DharmaName,
 		}
 	}
 	return notificationDTO{

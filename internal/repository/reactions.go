@@ -84,6 +84,7 @@ type ReactionDetail struct {
 	Count           int
 	UserID          uuid.UUID
 	FullName        string
+	DharmaName      *string
 	AvatarBucket    *string
 	AvatarObjectKey *string
 	CreatedAt       time.Time
@@ -92,7 +93,7 @@ type ReactionDetail struct {
 func (r *Repo) GetReactionDetails(ctx context.Context, target ReactionTargetType, targetID uuid.UUID) ([]ReactionDetail, error) {
 	// We map TargetType string to ReactionTargetType here or rely on the caller checking it.
 	rows, err := r.pool.Query(ctx, `
-		SELECT r.emoji, r.count, r.user_id, p.full_name, p.avatar_bucket, p.avatar_object_key, r.created_at
+		SELECT r.emoji, r.count, r.user_id, p.full_name, p.dharma_name, p.avatar_bucket, p.avatar_object_key, r.created_at
 		FROM reactions r
 		JOIN user_profiles p ON r.user_id = p.user_id
 		WHERE r.target_type = $1 AND r.target_id = $2
@@ -106,7 +107,7 @@ func (r *Repo) GetReactionDetails(ctx context.Context, target ReactionTargetType
 	var details []ReactionDetail
 	for rows.Next() {
 		var d ReactionDetail
-		if err := rows.Scan(&d.Emoji, &d.Count, &d.UserID, &d.FullName, &d.AvatarBucket, &d.AvatarObjectKey, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.Emoji, &d.Count, &d.UserID, &d.FullName, &d.DharmaName, &d.AvatarBucket, &d.AvatarObjectKey, &d.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan reaction detail: %w", err)
 		}
 		details = append(details, d)

@@ -67,12 +67,13 @@ func (s *ReactionService) targetExists(ctx context.Context, target repository.Re
 }
 
 type ReactionDetail struct {
-	Emoji     string
-	Count     int
-	UserID    uuid.UUID
-	FullName  string
-	AvatarURL string
-	CreatedAt time.Time
+	Emoji      string
+	Count      int
+	UserID     uuid.UUID
+	FullName   string
+	DharmaName *string
+	AvatarURL  string
+	CreatedAt  time.Time
 }
 
 // Details returns the reaction details for a given target.
@@ -94,12 +95,13 @@ func (s *ReactionService) Details(ctx context.Context, viewer Principal, target 
 			avatar = s.Storage.BuildPublicURL(*agg.AvatarObjectKey)
 		}
 		dtos[i] = ReactionDetail{
-			Emoji:     agg.Emoji,
-			Count:     agg.Count,
-			UserID:    agg.UserID,
-			FullName:  agg.FullName,
-			AvatarURL: avatar,
-			CreatedAt: agg.CreatedAt,
+			Emoji:      agg.Emoji,
+			Count:      agg.Count,
+			UserID:     agg.UserID,
+			FullName:   agg.FullName,
+			DharmaName: agg.DharmaName,
+			AvatarURL:  avatar,
+			CreatedAt:  agg.CreatedAt,
 		}
 	}
 	return dtos, nil

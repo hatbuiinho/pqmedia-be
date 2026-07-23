@@ -16,9 +16,10 @@ const maxPostContent = 10000
 
 // PostAuthor is a tiny projection of a User+Profile pair, embedded in feed responses.
 type PostAuthor struct {
-	ID        uuid.UUID
-	FullName  string
-	AvatarURL string
+	ID         uuid.UUID
+	FullName   string
+	DharmaName *string
+	AvatarURL  string
 }
 
 type PostAttachment struct {
@@ -427,7 +428,7 @@ func (s *PostService) authorView(u repository.User, p repository.Profile) PostAu
 	if p.AvatarObjectKey != nil {
 		avatar = s.Storage.BuildPublicURL(*p.AvatarObjectKey)
 	}
-	return PostAuthor{ID: u.ID, FullName: p.FullName, AvatarURL: avatar}
+	return PostAuthor{ID: u.ID, FullName: p.FullName, DharmaName: p.DharmaName, AvatarURL: avatar}
 }
 
 func (s *PostService) loadPostApprovers(ctx context.Context, posts []repository.Post) (map[uuid.UUID]*PostAuthor, error) {

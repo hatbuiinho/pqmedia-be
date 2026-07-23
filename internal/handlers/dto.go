@@ -170,9 +170,10 @@ func toUserImportPreviewDTO(preview service.UserImportPreview) UserImportPreview
 // ---------- Posts ----------
 
 type PostAuthorDTO struct {
-	ID        string  `json:"id"`
-	FullName  string  `json:"full_name"`
-	AvatarURL *string `json:"avatar_url"`
+	ID         string  `json:"id"`
+	FullName   string  `json:"full_name"`
+	DharmaName *string `json:"dharma_name,omitempty"`
+	AvatarURL  *string `json:"avatar_url"`
 }
 
 type PostAttachmentDTO struct {
@@ -273,9 +274,10 @@ func ToComment(c service.Comment) CommentDTO {
 		ID:     c.ID.String(),
 		PostID: c.PostID.String(),
 		Author: PostAuthorDTO{
-			ID:        c.Author.ID.String(),
-			FullName:  c.Author.FullName,
-			AvatarURL: avatar,
+			ID:         c.Author.ID.String(),
+			FullName:   c.Author.FullName,
+			DharmaName: c.Author.DharmaName,
+			AvatarURL:  avatar,
 		},
 		Content:   c.Content,
 		Reactions: reactions,
@@ -317,9 +319,10 @@ func ToPost(p service.Post) PostDTO {
 			ExternalURL: pub.ExternalURL,
 			PublishedAt: pub.PublishedAt,
 			PublishedBy: PostAuthorDTO{
-				ID:        pub.PublishedBy.ID.String(),
-				FullName:  pub.PublishedBy.FullName,
-				AvatarURL: stringPtr(pub.PublishedBy.AvatarURL),
+				ID:         pub.PublishedBy.ID.String(),
+				FullName:   pub.PublishedBy.FullName,
+				DharmaName: pub.PublishedBy.DharmaName,
+				AvatarURL:  stringPtr(pub.PublishedBy.AvatarURL),
 			},
 			Note: pub.Note,
 		}
@@ -332,17 +335,19 @@ func ToPost(p service.Post) PostDTO {
 	var approvedBy *PostAuthorDTO
 	if p.ApprovedBy != nil {
 		approvedBy = &PostAuthorDTO{
-			ID:        p.ApprovedBy.ID.String(),
-			FullName:  p.ApprovedBy.FullName,
-			AvatarURL: stringPtr(p.ApprovedBy.AvatarURL),
+			ID:         p.ApprovedBy.ID.String(),
+			FullName:   p.ApprovedBy.FullName,
+			DharmaName: p.ApprovedBy.DharmaName,
+			AvatarURL:  stringPtr(p.ApprovedBy.AvatarURL),
 		}
 	}
 	return PostDTO{
 		ID: p.ID.String(),
 		Author: PostAuthorDTO{
-			ID:        p.Author.ID.String(),
-			FullName:  p.Author.FullName,
-			AvatarURL: avatar,
+			ID:         p.Author.ID.String(),
+			FullName:   p.Author.FullName,
+			DharmaName: p.Author.DharmaName,
+			AvatarURL:  avatar,
 		},
 		ApprovedBy:          approvedBy,
 		Content:             p.Content,
@@ -411,10 +416,11 @@ func stringPtr(s string) *string {
 }
 
 type ReactionDetailDTO struct {
-	Emoji     string    `json:"emoji"`
-	Count     int       `json:"count"`
-	UserID    string    `json:"user_id"`
-	FullName  string    `json:"full_name"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	Emoji      string    `json:"emoji"`
+	Count      int       `json:"count"`
+	UserID     string    `json:"user_id"`
+	FullName   string    `json:"full_name"`
+	DharmaName *string   `json:"dharma_name,omitempty"`
+	AvatarURL  string    `json:"avatar_url,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }

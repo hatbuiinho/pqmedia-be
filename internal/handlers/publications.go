@@ -92,9 +92,10 @@ func toPublicationDTO(p service.Publication) PublicationDTO {
 		ExternalURL: p.ExternalURL,
 		PublishedAt: p.PublishedAt,
 		PublishedBy: PostAuthorDTO{
-			ID:        p.PublishedBy.ID.String(),
-			FullName:  p.PublishedBy.FullName,
-			AvatarURL: stringPtr(p.PublishedBy.AvatarURL),
+			ID:         p.PublishedBy.ID.String(),
+			FullName:   p.PublishedBy.FullName,
+			DharmaName: p.PublishedBy.DharmaName,
+			AvatarURL:  stringPtr(p.PublishedBy.AvatarURL),
 		},
 		Note: p.Note,
 	}
