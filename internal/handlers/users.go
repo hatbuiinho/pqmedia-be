@@ -32,6 +32,7 @@ type createUserRequest struct {
 	CTN                   *string `json:"ctn"`
 	IsAdmin               bool    `json:"is_admin"`
 	CanManagePublications bool    `json:"can_manage_publications"`
+	CanReviewPosts        bool    `json:"can_review_posts"`
 	IsActive              *bool   `json:"is_active"`
 }
 
@@ -51,6 +52,7 @@ type updateUserRequest struct {
 	CTN                   *string `json:"ctn"`
 	IsAdmin               bool    `json:"is_admin"`
 	CanManagePublications bool    `json:"can_manage_publications"`
+	CanReviewPosts        bool    `json:"can_review_posts"`
 	IsActive              bool    `json:"is_active"`
 }
 
@@ -113,6 +115,7 @@ func (h UserHandler) Create(w http.ResponseWriter, r *http.Request) {
 		CTN:                   body.CTN,
 		IsAdmin:               body.IsAdmin,
 		CanManagePublications: body.CanManagePublications,
+		CanReviewPosts:        body.CanReviewPosts,
 		IsActive:              body.IsActive == nil || *body.IsActive,
 	})
 	if err != nil {
@@ -173,6 +176,7 @@ func (h UserHandler) DownloadImportTemplate(w http.ResponseWriter, r *http.Reque
 		"password",
 		"is_admin",
 		"can_manage_publications",
+		"can_review_posts",
 		"is_active",
 	}
 	sampleRow := []string{
@@ -184,6 +188,7 @@ func (h UserHandler) DownloadImportTemplate(w http.ResponseWriter, r *http.Reque
 		"Ban Truyen Thong",
 		"MatKhau123",
 		"false",
+		"true",
 		"true",
 		"true",
 	}
@@ -217,7 +222,7 @@ func (h UserHandler) DownloadImportTemplate(w http.ResponseWriter, r *http.Reque
 		Alignment: &excelize.Alignment{Horizontal: "center"},
 	})
 	if err == nil {
-		_ = workbook.SetCellStyle("Users", "A1", "J1", headerStyle)
+		_ = workbook.SetCellStyle("Users", "A1", "K1", headerStyle)
 	}
 	_ = workbook.SetColWidth("Users", "A", "A", 30)
 	_ = workbook.SetColWidth("Users", "B", "B", 24)
@@ -225,7 +230,7 @@ func (h UserHandler) DownloadImportTemplate(w http.ResponseWriter, r *http.Reque
 	_ = workbook.SetColWidth("Users", "D", "D", 14)
 	_ = workbook.SetColWidth("Users", "E", "E", 18)
 	_ = workbook.SetColWidth("Users", "F", "F", 24)
-	_ = workbook.SetColWidth("Users", "G", "J", 24)
+	_ = workbook.SetColWidth("Users", "G", "K", 24)
 	_ = workbook.SetPanes("Users", &excelize.Panes{
 		Freeze:      true,
 		Split:       false,
@@ -315,6 +320,7 @@ func (h UserHandler) Update(w http.ResponseWriter, r *http.Request) {
 		CTN:                   body.CTN,
 		IsAdmin:               body.IsAdmin,
 		CanManagePublications: body.CanManagePublications,
+		CanReviewPosts:        body.CanReviewPosts,
 		IsActive:              body.IsActive,
 	})
 	if err != nil {

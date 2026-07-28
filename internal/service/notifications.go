@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -18,6 +19,13 @@ import (
 type Trigger interface {
 	OnPostComment(ctx context.Context, post repository.Post, comment repository.Comment, actor Principal)
 	OnReaction(ctx context.Context, target repository.ReactionTargetType, targetID uuid.UUID, emoji string, actor Principal)
+}
+
+type PostTrigger interface {
+	OnPostCreated(ctx context.Context, post repository.Post, actor Principal)
+	OnPostApproved(ctx context.Context, post repository.Post, actor Principal)
+	OnPostRejected(ctx context.Context, post repository.Post, actor Principal)
+	OnPostResubmitted(ctx context.Context, post repository.Post, actor Principal)
 }
 
 type Notification struct {
@@ -170,6 +178,24 @@ func (s *NotificationService) OnReaction(ctx context.Context, target repository.
 	})
 }
 
+func (s *NotificationService) OnPostCreated(ctx context.Context, post repository.Post, actor Principal) {
+	title := fmt.Sprintf("%s đã đăng bài mới", preferredProfileName(actor.Profile))
+	s.notifyReviewers(ctx, actor.User.ID, title, notificationBodyFromPost(post), "post_created", post, actor)
+}
+
+func (s *NotificationService) OnPostApproved(ctx context.Context, post repository.Post, actor Principal) {
+	s.notifyPostAuthor(ctx, post, actor, "post_approved", "Bài viết của bạn đã được duyệt", notificationBodyFromPost(post))
+}
+
+func (s *NotificationService) OnPostRejected(ctx context.Context, post repository.Post, actor Principal) {
+	s.notifyPostAuthor(ctx, post, actor, "post_rejected", "Bài viết của bạn không được duyệt", notificationBodyFromPost(post))
+}
+
+func (s *NotificationService) OnPostResubmitted(ctx context.Context, post repository.Post, actor Principal) {
+	title := fmt.Sprintf("%s đã gửi duyệt lại bài viết", preferredProfileName(actor.Profile))
+	s.notifyReviewers(ctx, actor.User.ID, title, notificationBodyFromPost(post), "post_resubmitted", post, actor)
+}
+
 func (s *NotificationService) push(ctx context.Context, userID uuid.UUID, payload push.Payload) {
 	if s.Sender == nil {
 		return
@@ -182,6 +208,87 @@ func (s *NotificationService) logger() *slog.Logger {
 		return s.Logger
 	}
 	return slog.Default()
+}
+
+func (s *NotificationService) notifyReviewers(
+	ctx context.Context,
+	actorUserID uuid.UUID,
+	title string,
+	body string,
+	kind string,
+	post repository.Post,
+	actor Principal,
+) {
+	recipientIDs, err := s.Repo.ListActiveReviewerUserIDs(ctx)
+	if err != nil {
+		s.logger().Error("notification reviewers", slog.String("err", err.Error()))
+		return
+	}
+	for _, recipientUserID := range recipientIDs {
+		if recipientUserID == actorUserID {
+			continue
+		}
+		s.notifyOne(ctx, recipientUserID, &actorUserID, kind, post, title, body, actor)
+	}
+}
+
+func (s *NotificationService) notifyPostAuthor(
+	ctx context.Context,
+	post repository.Post,
+	actor Principal,
+	kind string,
+	title string,
+	body string,
+) {
+	if post.AuthorUserID == actor.User.ID {
+		return
+	}
+	actorUserID := actor.User.ID
+	s.notifyOne(ctx, post.AuthorUserID, &actorUserID, kind, post, title, body, actor)
+}
+
+func (s *NotificationService) notifyOne(
+	ctx context.Context,
+	recipientUserID uuid.UUID,
+	actorUserID *uuid.UUID,
+	kind string,
+	post repository.Post,
+	title string,
+	body string,
+	actor Principal,
+) {
+	postIDCopy := post.ID
+	route := fmt.Sprintf("/posts/%s", post.ID)
+	payload := map[string]any{
+		"post_id": post.ID.String(),
+		"kind":    kind,
+	}
+	raw, _ := json.Marshal(payload)
+	created, err := s.Repo.CreateNotification(ctx, repository.CreateNotificationParams{
+		RecipientUserID: recipientUserID,
+		ActorUserID:     actorUserID,
+		Kind:            kind,
+		PostID:          &postIDCopy,
+		Title:           title,
+		Body:            body,
+		RouteURL:        &route,
+		Payload:         raw,
+	})
+	if err != nil {
+		s.logger().Error("notification create", slog.String("err", err.Error()))
+		return
+	}
+	s.push(ctx, recipientUserID, push.Payload{
+		Title: created.Title,
+		Body:  created.Body,
+		Tag:   "post-" + post.ID.String() + "-" + kind,
+		URL:   route,
+		Data: map[string]any{
+			"post_id": post.ID.String(),
+			"kind":    kind,
+			"actor":   actor.User.ID.String(),
+		},
+	})
 }
 
 func (s *NotificationService) reactionRecipient(ctx context.Context, target repository.ReactionTargetType, targetID uuid.UUID) (uuid.UUID, uuid.UUID, string, error) {
@@ -208,4 +315,12 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+func notificationBodyFromPost(post repository.Post) string {
+	content := strings.TrimSpace(post.Content)
+	if content == "" {
+		return "Mở bài viết để xem chi tiết."
+	}
+	return truncate(content, 140)
 }

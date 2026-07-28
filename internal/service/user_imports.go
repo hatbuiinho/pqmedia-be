@@ -62,6 +62,7 @@ type UserImportRowChanges struct {
 	CTN                   bool
 	IsAdmin               bool
 	CanManagePublications bool
+	CanReviewPosts        bool
 	IsActive              bool
 	Password              bool
 }
@@ -85,6 +86,7 @@ type userImportParsedRow struct {
 	Password              string
 	IsAdmin               *bool
 	CanManagePublications *bool
+	CanReviewPosts        *bool
 	IsActive              *bool
 	ParseError            string
 }
@@ -114,6 +116,7 @@ var userImportHeaders = map[string]string{
 	"password":                "password",
 	"is_admin":                "is_admin",
 	"can_manage_publications": "can_manage_publications",
+	"can_review_posts":        "can_review_posts",
 	"is_active":               "is_active",
 }
 
@@ -351,6 +354,10 @@ func (s *UserService) prepareUserImportRow(row userImportParsedRow, existing rep
 		if row.CanManagePublications != nil {
 			canManage = *row.CanManagePublications
 		}
+		canReview := false
+		if row.CanReviewPosts != nil {
+			canReview = *row.CanReviewPosts
+		}
 		isActive := true
 		if row.IsActive != nil {
 			isActive = *row.IsActive
@@ -374,6 +381,7 @@ func (s *UserService) prepareUserImportRow(row userImportParsedRow, existing rep
 					CTN:                   profileInput.CTN != nil,
 					IsAdmin:               isAdmin,
 					CanManagePublications: canManage,
+					CanReviewPosts:        canReview,
 					IsActive:              !isActive,
 					Password:              true,
 				},
@@ -388,6 +396,7 @@ func (s *UserService) prepareUserImportRow(row userImportParsedRow, existing rep
 				CTN:                   profileInput.CTN,
 				IsAdmin:               isAdmin,
 				CanManagePublications: canManage,
+				CanReviewPosts:        canReview,
 				IsActive:              isActive,
 			},
 			beforeAAD: false,
@@ -402,6 +411,10 @@ func (s *UserService) prepareUserImportRow(row userImportParsedRow, existing rep
 	canManage := existing.User.CanManagePublications
 	if row.CanManagePublications != nil {
 		canManage = *row.CanManagePublications
+	}
+	canReview := existing.User.CanReviewPosts
+	if row.CanReviewPosts != nil {
+		canReview = *row.CanReviewPosts
 	}
 	isActive := existing.User.IsActive
 	if row.IsActive != nil {
@@ -429,6 +442,7 @@ func (s *UserService) prepareUserImportRow(row userImportParsedRow, existing rep
 		CTN:                   stringPtrValue(profileInput.CTN) != stringPtrValue(existing.Profile.CTN),
 		IsAdmin:               isAdmin != existing.User.IsAdmin,
 		CanManagePublications: canManage != existing.User.CanManagePublications,
+		CanReviewPosts:        canReview != existing.User.CanReviewPosts,
 		IsActive:              isActive != existing.User.IsActive,
 		Password:              passwordChanged,
 	}
@@ -475,6 +489,7 @@ func (s *UserService) prepareUserImportRow(row userImportParsedRow, existing rep
 			CTN:                   profileInput.CTN,
 			IsAdmin:               isAdmin,
 			CanManagePublications: canManage,
+			CanReviewPosts:        canReview,
 			IsActive:              isActive,
 		},
 		beforeAAD: existing.User.IsAdmin && existing.User.IsActive,
@@ -609,6 +624,10 @@ func parseUserImportRow(rowNumber int, values []string, headerMap map[string]int
 	if err != nil {
 		return userImportParsedRow{}, fmt.Errorf("cột can_manage_publications: %w", err)
 	}
+	canReview, err := parseOptionalImportBool(cellValue(values, headerMap, "can_review_posts"))
+	if err != nil {
+		return userImportParsedRow{}, fmt.Errorf("cột can_review_posts: %w", err)
+	}
 	isActive, err := parseOptionalImportBool(cellValue(values, headerMap, "is_active"))
 	if err != nil {
 		return userImportParsedRow{}, fmt.Errorf("cột is_active: %w", err)
@@ -636,6 +655,7 @@ func parseUserImportRow(rowNumber int, values []string, headerMap map[string]int
 		Password:              password,
 		IsAdmin:               isAdmin,
 		CanManagePublications: canManage,
+		CanReviewPosts:        canReview,
 		IsActive:              isActive,
 	}, nil
 }
@@ -782,6 +802,7 @@ func hasAnyImportChange(changes UserImportRowChanges) bool {
 		changes.CTN ||
 		changes.IsAdmin ||
 		changes.CanManagePublications ||
+		changes.CanReviewPosts ||
 		changes.IsActive ||
 		changes.Password
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"pqmedia/be/internal/authorization"
 	"pqmedia/be/internal/repository"
 	"pqmedia/be/internal/storage"
 )
@@ -34,7 +35,7 @@ type PostAttachment struct {
 type Post struct {
 	repository.Post
 	Author       PostAuthor
-	ApprovedBy   *PostAuthor
+	ReviewedBy   *PostAuthor
 	Attachments  []PostAttachment
 	Hashtags     []string
 	CommentCount int
@@ -80,6 +81,7 @@ type PostService struct {
 	Storage      *storage.MinIO
 	DriveSync    *DriveSyncService
 	DriveFolders *DriveFolderService
+	Notification PostTrigger
 }
 
 func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter repository.FeedFilter) ([]Post, Page, error) {
@@ -121,14 +123,14 @@ func (s *PostService) ListFeed(ctx context.Context, viewer Principal, filter rep
 	if err != nil {
 		return nil, Page{}, err
 	}
-	approvedBy, err := s.loadPostApprovers(ctx, posts)
+	reviewedBy, err := s.loadPostReviewers(ctx, posts)
 	if err != nil {
 		return nil, Page{}, err
 	}
 
 	out := make([]Post, len(posts))
 	for i, p := range posts {
-		composed := s.composePost(p, users[i], profiles[i], approvedBy[p.ID], attachments[p.ID], driveSyncs, commentCounts[p.ID], hashtags[p.ID])
+		composed := s.composePost(p, users[i], profiles[i], reviewedBy[p.ID], attachments[p.ID], driveSyncs, commentCounts[p.ID], hashtags[p.ID])
 		composed.Reactions = toReactionSummaries(reactions[p.ID])
 		composed.Publications = toPublications(publications[p.ID], s.Storage.BuildPublicURL)
 		out[i] = composed
@@ -176,11 +178,11 @@ func (s *PostService) GetPost(ctx context.Context, viewer Principal, id uuid.UUI
 	if err != nil {
 		return Post{}, err
 	}
-	approvedBy, err := s.loadPostApprovers(ctx, []repository.Post{post})
+	reviewedBy, err := s.loadPostReviewers(ctx, []repository.Post{post})
 	if err != nil {
 		return Post{}, err
 	}
-	composed := s.composePost(post, author, profile, approvedBy[post.ID], attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
+	composed := s.composePost(post, author, profile, reviewedBy[post.ID], attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
 	composed.Reactions = toReactionSummaries(reactions[post.ID])
 	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
 	return composed, nil
@@ -213,11 +215,14 @@ func (s *PostService) Create(ctx context.Context, viewer Principal, input Create
 			return Post{}, err
 		}
 	}
-	author, _ := s.Repo.GetUserByID(ctx, post.AuthorUserID)
-	profile, _ := s.Repo.GetProfile(ctx, post.AuthorUserID)
-	driveSyncs, _ := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(atts))
-	approvedBy, _ := s.loadPostApprovers(ctx, []repository.Post{post})
-	return s.composePost(post, author, profile, approvedBy[post.ID], atts, driveSyncs, 0, input.Hashtags), nil
+	composed, err := s.hydratePost(ctx, viewer, post, atts, input.Hashtags)
+	if err != nil {
+		return Post{}, err
+	}
+	if s.Notification != nil {
+		s.Notification.OnPostCreated(ctx, post, viewer)
+	}
+	return composed, nil
 }
 
 func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID, input UpdatePostInput) (Post, error) {
@@ -265,72 +270,54 @@ func (s *PostService) Update(ctx context.Context, viewer Principal, id uuid.UUID
 			return Post{}, err
 		}
 	}
-	author, _ := s.Repo.GetUserByID(ctx, updated.AuthorUserID)
-	profile, _ := s.Repo.GetProfile(ctx, updated.AuthorUserID)
-	counts, _ := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{updated.ID})
-	hashtags, _ := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{updated.ID})
-	reactions, _ := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{updated.ID})
-	publications, _ := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{updated.ID})
-	driveSyncs, _ := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(atts))
-	approvedBy, _ := s.loadPostApprovers(ctx, []repository.Post{updated})
-	composed := s.composePost(updated, author, profile, approvedBy[updated.ID], atts, driveSyncs, counts[updated.ID], hashtags[updated.ID])
-	composed.Reactions = toReactionSummaries(reactions[updated.ID])
-	composed.Publications = toPublications(publications[updated.ID], s.Storage.BuildPublicURL)
-	return composed, nil
+	return s.hydratePost(ctx, viewer, updated, atts, nil)
 }
 
-func (s *PostService) UpdateApproval(ctx context.Context, viewer Principal, id uuid.UUID, isApproved bool) (Post, error) {
-	if !viewer.User.IsAdmin {
-		return Post{}, ErrForbidden
-	}
-
-	post, err := s.Repo.UpdatePostApproval(ctx, id, isApproved, &viewer.User.ID)
+func (s *PostService) UpdateApproval(ctx context.Context, viewer Principal, id uuid.UUID, status repository.PostApprovalStatus) (Post, error) {
+	existing, err := s.Repo.GetPost(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return Post{}, ErrNotFound
 		}
 		return Post{}, err
 	}
+	nextStatus, err := normalizeApprovalStatus(status)
+	if err != nil {
+		return Post{}, err
+	}
+	if nextStatus == existing.ApprovalStatus {
+		return s.hydratePost(ctx, viewer, existing, nil, nil)
+	}
+	if err := validateApprovalTransition(viewer, existing, nextStatus); err != nil {
+		return Post{}, err
+	}
 
-	author, err := s.Repo.GetUserByID(ctx, post.AuthorUserID)
+	var reviewedByUserID *uuid.UUID
+	if nextStatus != repository.PostApprovalPending {
+		reviewedByUserID = &viewer.User.ID
+	}
+
+	post, err := s.Repo.UpdatePostApproval(ctx, id, nextStatus, reviewedByUserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return Post{}, ErrNotFound
+		}
+		return Post{}, err
+	}
+	composed, err := s.hydratePost(ctx, viewer, post, nil, nil)
 	if err != nil {
 		return Post{}, err
 	}
-	profile, err := s.Repo.GetProfile(ctx, post.AuthorUserID)
-	if err != nil {
-		return Post{}, err
+	if s.Notification != nil {
+		switch {
+		case nextStatus == repository.PostApprovalApproved:
+			s.Notification.OnPostApproved(ctx, post, viewer)
+		case nextStatus == repository.PostApprovalRejected:
+			s.Notification.OnPostRejected(ctx, post, viewer)
+		case existing.ApprovalStatus == repository.PostApprovalRejected && nextStatus == repository.PostApprovalPending:
+			s.Notification.OnPostResubmitted(ctx, post, viewer)
+		}
 	}
-	attachments, err := s.Repo.ListAttachmentsByPosts(ctx, []uuid.UUID{post.ID})
-	if err != nil {
-		return Post{}, err
-	}
-	driveSyncs, err := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDsFromMap(attachments))
-	if err != nil {
-		return Post{}, err
-	}
-	counts, err := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{post.ID})
-	if err != nil {
-		return Post{}, err
-	}
-	reactions, err := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{post.ID})
-	if err != nil {
-		return Post{}, err
-	}
-	publications, err := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{post.ID})
-	if err != nil {
-		return Post{}, err
-	}
-	hashtags, err := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{post.ID})
-	if err != nil {
-		return Post{}, err
-	}
-	approvedBy, err := s.loadPostApprovers(ctx, []repository.Post{post})
-	if err != nil {
-		return Post{}, err
-	}
-	composed := s.composePost(post, author, profile, approvedBy[post.ID], attachments[post.ID], driveSyncs, counts[post.ID], hashtags[post.ID])
-	composed.Reactions = toReactionSummaries(reactions[post.ID])
-	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
 	return composed, nil
 }
 
@@ -378,7 +365,7 @@ func (s *PostService) composePost(
 	post repository.Post,
 	author repository.User,
 	profile repository.Profile,
-	approvedBy *PostAuthor,
+	reviewedBy *PostAuthor,
 	attachments []repository.PostAttachment,
 	driveSyncs map[uuid.UUID]repository.AttachmentDriveSync,
 	commentCount int,
@@ -399,7 +386,7 @@ func (s *PostService) composePost(
 	return Post{
 		Post:         post,
 		Author:       s.authorView(author, profile),
-		ApprovedBy:   approvedBy,
+		ReviewedBy:   reviewedBy,
 		Attachments:  enriched,
 		Hashtags:     hashtags,
 		CommentCount: commentCount,
@@ -442,28 +429,28 @@ func (s *PostService) authorView(u repository.User, p repository.Profile) PostAu
 	}
 }
 
-func (s *PostService) loadPostApprovers(ctx context.Context, posts []repository.Post) (map[uuid.UUID]*PostAuthor, error) {
-	approverIDs := make([]uuid.UUID, 0, len(posts))
+func (s *PostService) loadPostReviewers(ctx context.Context, posts []repository.Post) (map[uuid.UUID]*PostAuthor, error) {
+	reviewerIDs := make([]uuid.UUID, 0, len(posts))
 	seen := make(map[uuid.UUID]struct{}, len(posts))
 	for _, post := range posts {
-		if post.ApprovedByUserID == nil {
+		if post.ReviewedByUserID == nil {
 			continue
 		}
-		if _, ok := seen[*post.ApprovedByUserID]; ok {
+		if _, ok := seen[*post.ReviewedByUserID]; ok {
 			continue
 		}
-		seen[*post.ApprovedByUserID] = struct{}{}
-		approverIDs = append(approverIDs, *post.ApprovedByUserID)
+		seen[*post.ReviewedByUserID] = struct{}{}
+		reviewerIDs = append(reviewerIDs, *post.ReviewedByUserID)
 	}
-	if len(approverIDs) == 0 {
+	if len(reviewerIDs) == 0 {
 		return map[uuid.UUID]*PostAuthor{}, nil
 	}
 
-	users, err := s.Repo.ListUsersByIDs(ctx, approverIDs)
+	users, err := s.Repo.ListUsersByIDs(ctx, reviewerIDs)
 	if err != nil {
 		return nil, err
 	}
-	profiles, err := s.Repo.ListProfilesByUserIDs(ctx, approverIDs)
+	profiles, err := s.Repo.ListProfilesByUserIDs(ctx, reviewerIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -479,11 +466,11 @@ func (s *PostService) loadPostApprovers(ctx context.Context, posts []repository.
 
 	out := make(map[uuid.UUID]*PostAuthor, len(posts))
 	for _, post := range posts {
-		if post.ApprovedByUserID == nil {
+		if post.ReviewedByUserID == nil {
 			continue
 		}
-		user, okUser := userByID[*post.ApprovedByUserID]
-		profile, okProfile := profileByID[*post.ApprovedByUserID]
+		user, okUser := userByID[*post.ReviewedByUserID]
+		profile, okProfile := profileByID[*post.ReviewedByUserID]
 		if !okUser || !okProfile {
 			continue
 		}
@@ -491,6 +478,80 @@ func (s *PostService) loadPostApprovers(ctx context.Context, posts []repository.
 		out[post.ID] = &author
 	}
 	return out, nil
+}
+
+func (s *PostService) hydratePost(ctx context.Context, viewer Principal, post repository.Post, attachments []repository.PostAttachment, hashtags []string) (Post, error) {
+	author, err := s.Repo.GetUserByID(ctx, post.AuthorUserID)
+	if err != nil {
+		return Post{}, err
+	}
+	profile, err := s.Repo.GetProfile(ctx, post.AuthorUserID)
+	if err != nil {
+		return Post{}, err
+	}
+	if attachments == nil {
+		attachmentMap, err := s.Repo.ListAttachmentsByPosts(ctx, []uuid.UUID{post.ID})
+		if err != nil {
+			return Post{}, err
+		}
+		attachments = attachmentMap[post.ID]
+	}
+	driveSyncs, err := s.Repo.ListAttachmentDriveSyncsByAttachments(ctx, attachmentIDs(attachments))
+	if err != nil {
+		return Post{}, err
+	}
+	counts, err := s.Repo.CountCommentsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	if hashtags == nil {
+		hashtagMap, err := s.Repo.ListHashtagsByPosts(ctx, []uuid.UUID{post.ID})
+		if err != nil {
+			return Post{}, err
+		}
+		hashtags = hashtagMap[post.ID]
+	}
+	reactions, err := s.Repo.ReactionSummariesByTargets(ctx, viewer.User.ID, repository.ReactionTargetPost, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	publications, err := s.Repo.ListPublicationsByPosts(ctx, []uuid.UUID{post.ID})
+	if err != nil {
+		return Post{}, err
+	}
+	reviewedBy, err := s.loadPostReviewers(ctx, []repository.Post{post})
+	if err != nil {
+		return Post{}, err
+	}
+	composed := s.composePost(post, author, profile, reviewedBy[post.ID], attachments, driveSyncs, counts[post.ID], hashtags)
+	composed.Reactions = toReactionSummaries(reactions[post.ID])
+	composed.Publications = toPublications(publications[post.ID], s.Storage.BuildPublicURL)
+	return composed, nil
+}
+
+func normalizeApprovalStatus(status repository.PostApprovalStatus) (repository.PostApprovalStatus, error) {
+	switch status {
+	case repository.PostApprovalPending, repository.PostApprovalApproved, repository.PostApprovalRejected:
+		return status, nil
+	default:
+		return "", ValidationError("approval_status không hợp lệ")
+	}
+}
+
+func validateApprovalTransition(viewer Principal, existing repository.Post, nextStatus repository.PostApprovalStatus) error {
+	if authorization.CanReviewPosts(viewer.User) {
+		return nil
+	}
+	if existing.AuthorUserID != viewer.User.ID {
+		return ErrForbidden
+	}
+	if existing.ApprovalStatus == repository.PostApprovalRejected && nextStatus == repository.PostApprovalPending {
+		if existing.ReviewedAt != nil && !existing.UpdatedAt.After(*existing.ReviewedAt) {
+			return ValidationError("hãy sửa bài viết trước khi gửi duyệt lại")
+		}
+		return nil
+	}
+	return ErrForbidden
 }
 
 func (s *PostService) attachmentURL(a repository.PostAttachment) string {

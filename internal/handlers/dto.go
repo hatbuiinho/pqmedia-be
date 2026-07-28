@@ -19,6 +19,7 @@ type UserDTO struct {
 	Email                 string    `json:"email"`
 	IsAdmin               bool      `json:"is_admin"`
 	CanManagePublications bool      `json:"can_manage_publications"`
+	CanReviewPosts        bool      `json:"can_review_posts"`
 	IsActive              bool      `json:"is_active"`
 	CreatedAt             time.Time `json:"created_at"`
 }
@@ -62,6 +63,7 @@ type UserImportRowChangesDTO struct {
 	CTN                   bool `json:"ctn"`
 	IsAdmin               bool `json:"is_admin"`
 	CanManagePublications bool `json:"can_manage_publications"`
+	CanReviewPosts        bool `json:"can_review_posts"`
 	IsActive              bool `json:"is_active"`
 	Password              bool `json:"password"`
 }
@@ -93,6 +95,7 @@ func ToUser(u repository.User) UserDTO {
 		Email:                 u.Email,
 		IsAdmin:               u.IsAdmin,
 		CanManagePublications: u.CanManagePublications,
+		CanReviewPosts:        u.CanReviewPosts,
 		IsActive:              u.IsActive,
 		CreatedAt:             u.CreatedAt,
 	}
@@ -154,6 +157,7 @@ func toUserImportPreviewDTO(preview service.UserImportPreview) UserImportPreview
 				CTN:                   row.Changes.CTN,
 				IsAdmin:               row.Changes.IsAdmin,
 				CanManagePublications: row.Changes.CanManagePublications,
+				CanReviewPosts:        row.Changes.CanReviewPosts,
 				IsActive:              row.Changes.IsActive,
 				Password:              row.Changes.Password,
 			},
@@ -228,7 +232,7 @@ type PublicationDTO struct {
 type PostDTO struct {
 	ID                  string               `json:"id"`
 	Author              PostAuthorDTO        `json:"author"`
-	ApprovedBy          *PostAuthorDTO       `json:"approved_by,omitempty"`
+	ReviewedBy          *PostAuthorDTO       `json:"reviewed_by,omitempty"`
 	Content             string               `json:"content"`
 	DriveTargetFolderID *string              `json:"drive_target_folder_id,omitempty"`
 	Attachments         []PostAttachmentDTO  `json:"attachments"`
@@ -236,8 +240,8 @@ type PostDTO struct {
 	CommentCount        int                  `json:"comment_count"`
 	Reactions           []ReactionSummaryDTO `json:"reactions"`
 	Publications        []PublicationDTO     `json:"publications"`
-	IsApproved          bool                 `json:"is_approved"`
-	ApprovedAt          *time.Time           `json:"approved_at,omitempty"`
+	ApprovalStatus      string               `json:"approval_status"`
+	ReviewedAt          *time.Time           `json:"reviewed_at,omitempty"`
 	CreatedAt           time.Time            `json:"created_at"`
 	UpdatedAt           time.Time            `json:"updated_at"`
 }
@@ -341,16 +345,16 @@ func ToPost(p service.Post) PostDTO {
 		a := p.Author.AvatarURL
 		avatar = &a
 	}
-	var approvedBy *PostAuthorDTO
-	if p.ApprovedBy != nil {
-		approvedBy = &PostAuthorDTO{
-			ID:         p.ApprovedBy.ID.String(),
-			FullName:   p.ApprovedBy.FullName,
-			DharmaName: p.ApprovedBy.DharmaName,
-			BirthYear:  p.ApprovedBy.BirthYear,
-			CTN:        p.ApprovedBy.CTN,
-			Phone:      p.ApprovedBy.Phone,
-			AvatarURL:  stringPtr(p.ApprovedBy.AvatarURL),
+	var reviewedBy *PostAuthorDTO
+	if p.ReviewedBy != nil {
+		reviewedBy = &PostAuthorDTO{
+			ID:         p.ReviewedBy.ID.String(),
+			FullName:   p.ReviewedBy.FullName,
+			DharmaName: p.ReviewedBy.DharmaName,
+			BirthYear:  p.ReviewedBy.BirthYear,
+			CTN:        p.ReviewedBy.CTN,
+			Phone:      p.ReviewedBy.Phone,
+			AvatarURL:  stringPtr(p.ReviewedBy.AvatarURL),
 		}
 	}
 	return PostDTO{
@@ -364,7 +368,7 @@ func ToPost(p service.Post) PostDTO {
 			Phone:      p.Author.Phone,
 			AvatarURL:  avatar,
 		},
-		ApprovedBy:          approvedBy,
+		ReviewedBy:          reviewedBy,
 		Content:             p.Content,
 		DriveTargetFolderID: p.DriveTargetFolderID,
 		Attachments:         attachments,
@@ -372,8 +376,8 @@ func ToPost(p service.Post) PostDTO {
 		CommentCount:        p.CommentCount,
 		Reactions:           reactions,
 		Publications:        publications,
-		IsApproved:          p.IsApproved,
-		ApprovedAt:          p.ApprovedAt,
+		ApprovalStatus:      string(p.ApprovalStatus),
+		ReviewedAt:          p.ReviewedAt,
 		CreatedAt:           p.CreatedAt,
 		UpdatedAt:           p.UpdatedAt,
 	}

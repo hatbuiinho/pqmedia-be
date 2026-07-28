@@ -62,7 +62,7 @@ type updatePostRequest struct {
 }
 
 type updatePostApprovalRequest struct {
-	IsApproved bool `json:"is_approved"`
+	ApprovalStatus string `json:"approval_status"`
 }
 
 type postFeedResponse struct {
@@ -98,7 +98,7 @@ func (h PostHandler) ListFeed(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_approval_filter", err.Error())
 			return
 		}
-		filter.ApprovalState = parsed
+		filter.ApprovalStatus = parsed
 	}
 	filter.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	filter.Offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
@@ -205,7 +205,17 @@ func (h PostHandler) UpdateApproval(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
 		return
 	}
-	post, err := h.Service.UpdateApproval(r.Context(), viewer, id, body.IsApproved)
+	status, err := parseApprovalStatus(body.ApprovalStatus)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid_body", err.Error())
+		return
+	}
+	post, err := h.Service.UpdateApproval(
+		r.Context(),
+		viewer,
+		id,
+		status,
+	)
 	if err != nil {
 		WriteServiceError(w, err)
 		return
@@ -268,13 +278,21 @@ func parsePublicationFilters(raw string) ([]repository.PublicationFilter, error)
 	return out, nil
 }
 
-func parseApprovalFilter(raw string) (*repository.ApprovalFilterState, error) {
-	state := repository.ApprovalFilterState(strings.TrimSpace(raw))
+func parseApprovalFilter(raw string) (*repository.PostApprovalStatus, error) {
+	state, err := parseApprovalStatus(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+func parseApprovalStatus(raw string) (repository.PostApprovalStatus, error) {
+	state := repository.PostApprovalStatus(strings.TrimSpace(raw))
 	switch state {
-	case repository.ApprovalFilterApproved, repository.ApprovalFilterPending:
-		return &state, nil
+	case repository.PostApprovalApproved, repository.PostApprovalPending, repository.PostApprovalRejected:
+		return state, nil
 	default:
-		return nil, fmt.Errorf("invalid approval filter state %q", raw)
+		return "", fmt.Errorf("invalid approval status %q", raw)
 	}
 }
 

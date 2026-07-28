@@ -59,7 +59,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.Goo
 			AccessTokenTTL:  cfg.AccessTokenTTL,
 			RefreshTokenTTL: cfg.RefreshTokenTTL,
 		},
-		Post:        &service.PostService{Repo: repo, Storage: store, DriveSync: driveSync, DriveFolders: driveFolders},
+		Post:        &service.PostService{Repo: repo, Storage: store, DriveSync: driveSync, DriveFolders: driveFolders, Notification: notif},
 		Comment:     &service.CommentService{Repo: repo, Storage: store, Notification: notif},
 		Reaction:    &service.ReactionService{Repo: repo, Storage: store, Notification: notif},
 		Publication: &service.PublicationService{Repo: repo, Storage: store},

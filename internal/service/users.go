@@ -43,6 +43,7 @@ type CreateUserInput struct {
 	CTN                   *string
 	IsAdmin               bool
 	CanManagePublications bool
+	CanReviewPosts        bool
 	IsActive              bool
 }
 
@@ -54,6 +55,7 @@ type UpdateUserInput struct {
 	CTN                   *string
 	IsAdmin               bool
 	CanManagePublications bool
+	CanReviewPosts        bool
 	IsActive              bool
 }
 
@@ -281,6 +283,7 @@ func (s *UserService) CreateUser(ctx context.Context, actor Principal, input Cre
 		PasswordHash:          hash,
 		IsAdmin:               input.IsAdmin,
 		CanManagePublications: input.CanManagePublications,
+		CanReviewPosts:        input.CanReviewPosts,
 		IsActive:              input.IsActive,
 		FullName:              profileInput.FullName,
 		DharmaName:            profileInput.DharmaName,
@@ -372,6 +375,7 @@ func (s *UserService) UpdateUser(ctx context.Context, actor Principal, userID uu
 		CTN:                   profileInput.CTN,
 		IsAdmin:               input.IsAdmin,
 		CanManagePublications: input.CanManagePublications,
+		CanReviewPosts:        input.CanReviewPosts,
 		IsActive:              input.IsActive,
 	})
 	if err != nil {
