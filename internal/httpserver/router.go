@@ -32,6 +32,7 @@ type Services struct {
 	Hashtag      *service.HashtagService
 	Settings     *service.SettingsService
 	Notification *service.NotificationService
+	Stats        *service.StatsService
 	Storage      *storage.MinIO
 }
 
@@ -73,6 +74,7 @@ func NewServices(repo *repository.Repo, store *storage.MinIO, drive *storage.Goo
 			DefaultDriveRootFolderID: cfg.GoogleDrive.RootFolderID,
 		},
 		Notification: notif,
+		Stats:        &service.StatsService{Repo: repo},
 	}
 }
 
@@ -108,6 +110,7 @@ func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Log
 	hashtagHandler := handlers.HashtagHandler{Service: svc.Hashtag}
 	settingsHandler := handlers.SettingsHandler{Service: svc.Settings}
 	notificationHandler := handlers.NotificationHandler{Service: svc.Notification, VAPIDKey: cfg.WebPush.PublicKey}
+	statsHandler := handlers.StatsHandler{Service: svc.Stats, Storage: svc.Storage}
 	uploadHandler := handlers.UploadHandler{Storage: svc.Storage}
 	healthHandler := handlers.HealthHandler{DB: db}
 
@@ -172,6 +175,8 @@ func NewRouterWithServices(db *pgxpool.Pool, cfg config.Config, logger *slog.Log
 		p.Post("/settings/drive/folders/refresh", settingsHandler.RefreshDriveFolders)
 		p.Post("/settings/drive/oauth/start", settingsHandler.StartGoogleDriveOAuth)
 		p.Delete("/settings/drive/oauth/connection", settingsHandler.DisconnectGoogleDriveOAuth)
+		p.Get("/stats/post-overview", statsHandler.GetPostOverview)
+		p.Get("/stats/member-activity", statsHandler.ListMemberActivity)
 
 		p.Get("/posts/{postID}/comments", commentHandler.ListByPost)
 		p.Post("/posts/{postID}/comments", commentHandler.Create)

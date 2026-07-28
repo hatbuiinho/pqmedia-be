@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/oauth2"
 	"google.golang.org/api/drive/v3"
@@ -215,11 +216,20 @@ func sanitizeDriveAppProperties(items map[string]string) map[string]string {
 	if len(items) == 0 {
 		return nil
 	}
+	const maxKeyValueBytes = 124
 	out := make(map[string]string, len(items))
 	for key, value := range items {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if key == "" || value == "" {
+			continue
+		}
+		keyBytes := len([]byte(key))
+		if keyBytes >= maxKeyValueBytes {
+			continue
+		}
+		value = truncateUTF8ByBytes(value, maxKeyValueBytes-keyBytes)
+		if value == "" {
 			continue
 		}
 		out[key] = value
@@ -228,4 +238,26 @@ func sanitizeDriveAppProperties(items map[string]string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+func truncateUTF8ByBytes(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if value == "" || limit <= 0 {
+		return ""
+	}
+	if len([]byte(value)) <= limit {
+		return value
+	}
+	var builder strings.Builder
+	builder.Grow(limit)
+	used := 0
+	for _, r := range value {
+		size := utf8.RuneLen(r)
+		if size < 0 || used+size > limit {
+			break
+		}
+		builder.WriteRune(r)
+		used += size
+	}
+	return strings.TrimSpace(builder.String())
 }

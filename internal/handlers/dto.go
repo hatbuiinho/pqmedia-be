@@ -89,6 +89,28 @@ type UserImportPreviewDTO struct {
 	Rows      []UserImportPreviewRowDTO `json:"rows"`
 }
 
+type PostOverviewStatsDTO struct {
+	TotalPosts       int `json:"total_posts"`
+	PendingPosts     int `json:"pending_posts"`
+	ApprovedPosts    int `json:"approved_posts"`
+	RejectedPosts    int `json:"rejected_posts"`
+	PublishedPosts   int `json:"published_posts"`
+	UnpublishedPosts int `json:"unpublished_posts"`
+}
+
+type MemberActivityRowDTO struct {
+	User             UserDTO    `json:"user"`
+	Profile          ProfileDTO `json:"profile"`
+	PostsCreated     int        `json:"posts_created"`
+	PostsPending     int        `json:"posts_pending"`
+	PostsApproved    int        `json:"posts_approved"`
+	PostsRejected    int        `json:"posts_rejected"`
+	PostsPublished   int        `json:"posts_published"`
+	CommentsCreated  int        `json:"comments_created"`
+	ReactionsCreated int        `json:"reactions_created"`
+	LastActiveAt     *time.Time `json:"last_active_at"`
+}
+
 func ToUser(u repository.User) UserDTO {
 	return UserDTO{
 		ID:                    u.ID.String(),
@@ -168,6 +190,32 @@ func toUserImportPreviewDTO(preview service.UserImportPreview) UserImportPreview
 		ExpiresAt: preview.ExpiresAt,
 		Summary:   toUserImportSummaryDTO(preview.Summary),
 		Rows:      rows,
+	}
+}
+
+func toPostOverviewStatsDTO(stats service.PostOverviewStats) PostOverviewStatsDTO {
+	return PostOverviewStatsDTO{
+		TotalPosts:       stats.TotalPosts,
+		PendingPosts:     stats.PendingPosts,
+		ApprovedPosts:    stats.ApprovedPosts,
+		RejectedPosts:    stats.RejectedPosts,
+		PublishedPosts:   stats.PublishedPosts,
+		UnpublishedPosts: stats.UnpublishedPosts,
+	}
+}
+
+func toMemberActivityRowDTO(row service.MemberActivityRow, avatarURL *string) MemberActivityRowDTO {
+	return MemberActivityRowDTO{
+		User:             ToUser(row.Principal.User),
+		Profile:          ToProfile(row.Principal.Profile, avatarURL),
+		PostsCreated:     row.PostsCreated,
+		PostsPending:     row.PostsPending,
+		PostsApproved:    row.PostsApproved,
+		PostsRejected:    row.PostsRejected,
+		PostsPublished:   row.PostsPublished,
+		CommentsCreated:  row.CommentsCreated,
+		ReactionsCreated: row.ReactionsCreated,
+		LastActiveAt:     row.LastActiveAt,
 	}
 }
 
