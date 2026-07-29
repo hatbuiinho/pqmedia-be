@@ -104,10 +104,17 @@ type FeedFilter struct {
 	Search             string
 	Hashtag            string
 	ApprovalStatus     *PostApprovalStatus
+	PublicationState   *FeedPublicationState
 	PublicationFilters []PublicationFilter
 	Limit              int
 	Offset             int
 }
+
+type FeedPublicationState string
+
+const (
+	FeedPublicationStatePublishedAny FeedPublicationState = "published_any"
+)
 
 type PublicationFilterState string
 
@@ -395,6 +402,7 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 		filter.Offset = 0
 	}
 	filter.ApprovalStatus = normalizeApprovalFilterStatus(filter.ApprovalStatus)
+	filter.PublicationState = normalizeFeedPublicationState(filter.PublicationState)
 	filter.PublicationFilters = normalizePublicationFilters(filter.PublicationFilters)
 
 	where := "WHERE posts.deleted_at IS NULL"
@@ -416,6 +424,17 @@ func (r *Repo) ListFeed(ctx context.Context, filter FeedFilter) ([]Post, []User,
 	}
 	if filter.ApprovalStatus != nil {
 		where += " AND posts.approval_status = " + addArg(*filter.ApprovalStatus)
+	}
+	if filter.PublicationState != nil {
+		switch *filter.PublicationState {
+		case FeedPublicationStatePublishedAny:
+			where += `
+		 AND EXISTS (
+		 	SELECT 1
+		 	FROM post_publications pp
+		 	WHERE pp.post_id = posts.id
+		 )`
+		}
 	}
 	for _, publicationFilter := range filter.PublicationFilters {
 		platformArg := addArg(publicationFilter.Platform)
@@ -518,6 +537,18 @@ func normalizeApprovalFilterStatus(status *PostApprovalStatus) *PostApprovalStat
 	switch *status {
 	case PostApprovalPending, PostApprovalApproved, PostApprovalRejected:
 		return status
+	default:
+		return nil
+	}
+}
+
+func normalizeFeedPublicationState(state *FeedPublicationState) *FeedPublicationState {
+	if state == nil {
+		return nil
+	}
+	switch *state {
+	case FeedPublicationStatePublishedAny:
+		return state
 	default:
 		return nil
 	}

@@ -100,6 +100,14 @@ func (h PostHandler) ListFeed(w http.ResponseWriter, r *http.Request) {
 		}
 		filter.ApprovalStatus = parsed
 	}
+	if raw := r.URL.Query().Get("publication_state"); raw != "" {
+		parsed, err := parsePublicationStateFilter(raw)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_publication_state", err.Error())
+			return
+		}
+		filter.PublicationState = parsed
+	}
 	filter.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
 	filter.Offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
 
@@ -293,6 +301,16 @@ func parseApprovalStatus(raw string) (repository.PostApprovalStatus, error) {
 		return state, nil
 	default:
 		return "", fmt.Errorf("invalid approval status %q", raw)
+	}
+}
+
+func parsePublicationStateFilter(raw string) (*repository.FeedPublicationState, error) {
+	state := repository.FeedPublicationState(strings.TrimSpace(raw))
+	switch state {
+	case repository.FeedPublicationStatePublishedAny:
+		return &state, nil
+	default:
+		return nil, fmt.Errorf("invalid publication state %q", raw)
 	}
 }
 
